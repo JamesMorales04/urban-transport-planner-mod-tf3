@@ -21,6 +21,8 @@ urban_transport_planner/
     utp_street_catalog.lua          TRAM detection, STREET inventory, scoring
     utp_city.lua                    town shape, street graph, radial corridor
     utp_proposal.lua                replaceSegment, validation, safe executor
+    utp_stops.lua                   stop planning + borrowed-segment builds
+    utp_lines.lua                   tram line, tram purchase, depot search
   tests/run_tests.lua             engine-independent unit tests
   docs/STATUS.md                  implemented / pending / risks
   CHANGELOG.md
@@ -46,9 +48,9 @@ Then enable the mod and test on a COPY of the save.
    `rejected = 0` to enable Build. Pre-build cost shows as pending; the
    real cost is reported by the engine after each segment builds.
 5. If rejected > 0: DO NOT BUILD; send panel screenshot + filtered log.
-6. If rejected = 0: save again, press Build, verify rails/catenary, then
-   place vanilla tram stops + a manual tram line over the corridor. The
-   acceptance test is a vanilla tram pathing across it.
+6. If rejected = 0: save again, press Build, then PLANIFICAR PARADAS,
+   CONSTRUIR PARADAS (>=2 groups), CREAR LINEA + TRANVIAS. The acceptance
+   test is a UTP tram visibly serving the line.
 
 Log filter (actual `stdout.txt` in the TF3 user-data log directory):
 

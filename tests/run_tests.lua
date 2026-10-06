@@ -53,6 +53,8 @@ end
 local logger = ug_require("urban_transport_planner::/urban_transit/utp_logger.lua")
 local catalog = ug_require("urban_transport_planner::/urban_transit/utp_street_catalog.lua")
 local city = ug_require("urban_transport_planner::/urban_transit/utp_city.lua")
+local stopMod = ug_require("urban_transport_planner::/urban_transit/utp_stops.lua")
+local lineMod = ug_require("urban_transport_planner::/urban_transit/utp_lines.lua")
 
 check("logger.errorText string", logger.errorText("boom") == "boom")
 check("logger.errorText table", logger.errorText({ message = "m1" }) == "message=m1")
@@ -201,6 +203,70 @@ do
     local base = { length = 100, satisfies = false, templateScore = 0, hasObjects = false }
     local withObj = { length = 100, satisfies = false, templateScore = 0, hasObjects = true }
     check("objects penalize cost", city.traversalCost(withObj) > city.traversalCost(base))
+end
+
+-- 10: stop planning filters (pure: satisfies/length/objects).
+do
+    local path = {
+        { entity = 1, satisfies = true, length = 60, hasObjects = false },
+        { entity = 2, satisfies = true, length = 20, hasObjects = false },
+        { entity = 3, satisfies = true, length = 80, hasObjects = true },
+        { entity = 4, satisfies = false, length = 90, hasObjects = false },
+    }
+    local plan, skipped = stopMod.planStops(path)
+    check("planStops keeps 1 eligible", #plan == 1 and plan[1].entity == 1,
+        "#=" .. #plan)
+    check("planStops counts skips",
+        skipped.short == 1 and skipped.objects == 1 and skipped.unconverted == 1,
+        string.format("short=%s obj=%s unconv=%s", tostring(skipped.short),
+            tostring(skipped.objects), tostring(skipped.unconverted)))
+    local empty = stopMod.planStops(nil)
+    check("planStops nil-safe", #empty == 0)
+end
+
+-- 11: stop model era (stub year 2000 -> new).
+do
+    check("stopModel modern era", stopMod.stopModel() ==
+        "::/stations/street/small_stops/small_new_twosided.con")
+end
+
+-- 12: vehicle count heuristic.
+do
+    check("vehicleCount 220m/4 groups = 1", lineMod.vehicleCount(220, 4) == 1)
+    check("vehicleCount 1200m/4 groups = 3", lineMod.vehicleCount(1200, 4) == 3)
+    check("vehicleCount capped by groups", lineMod.vehicleCount(5000, 2) == 2)
+    check("vehicleCount minimum 1", lineMod.vehicleCount(0, 0) == 1)
+end
+
+-- 13: tram discovery with stubbed modelRep.
+do
+    local fakeModels = {
+        ["tram/old.mdl"] = { transportVehicle = { transportModes = { "TRAM" } },
+            availability = { yearFrom = 1900, yearTo = 0 },
+            description = { name = "Old Tram" } },
+        ["tram/modern.mdl"] = { transportVehicle = { transportModes = { "ELECTRIC_TRAM" } },
+            availability = { yearFrom = 1950, yearTo = 0 },
+            description = { name = "Modern Tram" } },
+        ["bus/city.mdl"] = { transportVehicle = { transportModes = { "BUS" } },
+            availability = { yearFrom = 1950, yearTo = 0 },
+            description = { name = "City Bus" } },
+    }
+    local ids, byId, i = {}, {}, 0
+    for name in pairs(fakeModels) do i = i + 1 ids[name] = i end
+    for name, id in pairs(ids) do byId[id] = { metadata = fakeModels[name] } end
+    api.res.modelRep = {
+        forEachModelWithMetadata = function(kind, fn)
+            for name in pairs(fakeModels) do fn(name) end
+        end,
+        find = function(name) return ids[name] or -1 end,
+        get = function(id) return byId[id] end,
+    }
+    local all = lineMod.availableTrams(false)
+    check("availableTrams finds 2 trams, no bus", #all == 2, "#=" .. #all)
+    local elec = lineMod.availableTrams(true)
+    check("availableTrams electric filter", #elec == 1 and elec[1].electric == true,
+        #elec > 0 and elec[1].name or "none")
+    check("availableTrams newest first", #all == 2 and all[1].from >= all[2].from)
 end
 
 print(string.format("--- %d passed, %d failed ---", passes, failures))

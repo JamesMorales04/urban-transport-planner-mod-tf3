@@ -1,6 +1,25 @@
 # CHANGELOG
 
-## 0.7.0 — creation-check validation (playtest fix)
+## 0.8.0 — stops + tram line + vehicles
+
+v0.7 proven in game (Wahai: 4/4 corridor segments, engine cost $88064).
+0.8 adds the passenger service on top of the converted corridor:
+
+- Stop planning (`utp_stops`): one two-sided stop per converted edge
+  (>=30 m, object-free), era model, plan-then-build staging.
+- Stop building: borrowed-segment `SimpleProposal` per stop, sequential,
+  refused stops never abort the rest; station groups found via
+  before/after `STATION` diff + `EDGE_OBJECT` + `getStationGroup`, named
+  `<Town> Tranvia N`. Recipe credited to working mod `bus_loops_1`
+  (single source) + vanilla `.con`/tealdef corroboration.
+- Line (`utp_lines`): `<Town> Tranvia` through groups in corridor order,
+  `getBestLineAssignment(-1, comp, true)` + passenger `stopConfig`
+  (shipped `manager_window`/`line_util` twin).
+- Vehicles: newest tram for sale (`modelRep` scan), count
+  `clamp(1, floor(m/500)+1, groups)`, `Carrier.TRAM` depot best-effort;
+  line is created even without depot/vehicles.
+- Manifest log line per network; persistent manifest still pending.
+- Unit tests now 42 checks green.
 
 v0.6 analysis worked in game (Alteren: 15 street tram templates, correct
 `town_new_small -> town_new_small_tram_electrified x3` mapping), but every

@@ -4,7 +4,15 @@ Maintained per iteration. Sources of truth (in order): current code, real TF3
 logs, official/community TF3 modding docs, vanilla game scripts, then reasoned
 inference. No imagined APIs.
 
-## Implemented (v0.7, verified)
+## Implemented (v0.8, verified)
+
+- v0.7 conversion proven in game (Wahai: 4/4 segments, engine cost $88064).
+- v0.8 stops (`utp_stops`): plan from live corridor (converted, >=30 m,
+  object-free), era twosided model, sequential borrowed-segment builds,
+  continue-on-refusal, station-group discovery + naming.
+- v0.8 line + vehicles (`utp_lines`): one radial line in corridor order,
+  terminal assignment + passenger config, newest tram, heuristic count,
+  `Carrier.TRAM` depot best-effort, manifest log line.
 
 - v0.7 validation redesign (playtest Alteren): `makeProposalData` called on
   `replaceSegment` output throws at runtime
@@ -54,9 +62,8 @@ inference. No imagined APIs.
 
 ## Partially implemented
 
-- Corridor conversion end-to-end: v0.6 analysis proven in game (Alteren:
-  15 street tram templates, correct small->electrified x3 mapping,
-  3-segment corridor); v0.7 validation path awaits retest.
+- Full service: corridor proven, stops/line/vehicles implemented but
+  awaiting first in-game run (tram visibly serving the line).
 - Electric preference with non-electric fallback flag (`electricFallbacks`).
 
 ## Pending (in dependency order)
@@ -123,8 +130,7 @@ inference. No imagined APIs.
 
 ## Next priorities
 
-1. Retest v0.7 on a save copy (Alteren if available): Analyze should show
-   `rejected = 0` + `lanes to add > 0`; then Build, verify rails/catenary,
-   vanilla stops + manual tram line pathing.
-2. If green: stop planner + manual-line pathing check.
-3. If red: classify via creation error / send-callback messages — never guess.
+1. In-game v0.8 on a save copy: corridor -> paradas (expect N>=2 groups)
+   -> linea + tranvias; confirm tram moving with passengers.
+2. If red: classify via stop send-messages / group discovery logs.
+3. Then: Ring/Hybrid/Auto topology reusing the proven stop+line stack.

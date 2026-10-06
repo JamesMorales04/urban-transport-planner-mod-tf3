@@ -34,6 +34,10 @@ local logger = ug_require("urban_transport_planner::/urban_transit/utp_logger.lu
 local catalog = ug_require("urban_transport_planner::/urban_transit/utp_street_catalog.lua")
 local city = ug_require("urban_transport_planner::/urban_transit/utp_city.lua")
 local executor = ug_require("urban_transport_planner::/urban_transit/utp_proposal.lua")
+local stopMod = ug_require("urban_transport_planner::/urban_transit/utp_stops.lua")
+local lineMod = ug_require("urban_transport_planner::/urban_transit/utp_lines.lua")
+core.stops = stopMod
+core.lines = lineMod
 
 local function log(msg)
     logger.raw(msg)
@@ -145,6 +149,7 @@ function core.analyze(town, preferElectric)
     result.target = target
     result.segments = #path
     result._path = path
+    result._shape = { x = shape.x, y = shape.y, z = shape.z, radius = shape.radius }
     result.costKnown = false
 
     local firstError = nil
@@ -215,6 +220,125 @@ function core.analyzeSafe(town, preferElectric)
     local msg = logger.errorText(result)
     log("analysis exception: " .. msg)
     return { error = "Excepcion interna durante el analisis: " .. msg, buildable = false }
+end
+
+-- v0.8: stop plan from the LIVE corridor (re-analyzed, never stale).
+function core.planStops(town, preferElectric)
+    local wantElectric = preferElectric ~= false
+    local plan = core.analyze(town, preferElectric)
+    if plan.error then return { error = plan.error } end
+    local sp, skipped = stopMod.planStops(plan._path)
+    local trams = {}
+    pcall(function() trams = lineMod.availableTrams(wantElectric) end)
+    local depotFound = false
+    if plan._shape then
+        pcall(function()
+            depotFound = lineMod.nearbyTramDepot(plan._shape, wantElectric) ~= nil
+        end)
+    end
+    return {
+        townName = plan.town,
+        stops = #sp,
+        skipped = skipped,
+        length = plan.length,
+        tramModels = #trams,
+        tramModelName = trams[1] and trams[1].name or nil,
+        depotFound = depotFound,
+        buildable = #sp >= 2,
+        _plan = sp,
+    }
+end
+
+function core.planStopsSafe(town, preferElectric)
+    local ok, result = pcall(core.planStops, town, preferElectric)
+    if ok then return result end
+    local msg = logger.errorText(result)
+    log("stop-plan exception: " .. msg)
+    return { error = "Excepcion planificando paradas: " .. msg, buildable = false }
+end
+
+-- v0.8: build stops on the live corridor; onGroups(groups, summary, isError).
+function core.buildStops(town, preferElectric, report, onGroups)
+    report = report or function() end
+    local wantElectric = preferElectric ~= false
+    local plan = core.analyze(town, preferElectric)
+    if plan.error then
+        onGroups({}, plan.error, true)
+        return report(plan.error, true)
+    end
+    local sp, skipped = stopMod.planStops(plan._path)
+    if #sp < 2 then
+        local msg = string.format(
+            "Solo %d paradas ubicables (se necesitan 2+). Construye primero el corredor con tranvia.",
+            #sp)
+        onGroups({}, msg, true)
+        return report(msg, true)
+    end
+    local player = api.engine.util.getPlayer()
+    local context = executor.newContext(player)
+    local model = stopMod.stopModel()
+    log("stop model: " .. tostring(model))
+    local before = stopMod.snapshotStations(sp)
+    report(string.format("Construyendo %d paradas (%s)...", #sp, tostring(model)), false)
+    stopMod.buildStops(sp, model, player, context, report,
+        function(built, refused, lastError)
+            local groups = stopMod.discoverGroups(sp, before, plan.town)
+            log(string.format("stops: built=%d refused=%d groups=%d%s",
+                built, refused, #groups,
+                lastError ~= "" and (" lastError=" .. lastError) or ""))
+            if #groups < 2 then
+                local msg = string.format(
+                    "Paradas construidas=%d pero solo %d grupos detectados (minimo 2). %s",
+                    built, #groups, lastError or "")
+                onGroups(groups, msg, true)
+                return report(msg, true)
+            end
+            local summary = string.format(
+                "Paradas listas: %d construidas, %d rechazadas, %d grupos en corredor de %.2f km.",
+                built, refused, #groups, (plan.length or 0) / 1000)
+            onGroups({ groups = groups, length = plan.length, townName = plan.town }, summary, false)
+            report(summary, false)
+        end)
+end
+
+-- v0.8: create "<town> Tranvia" + buy trams (best effort).
+function core.createLineAndTrams(info, preferElectric, town, report, cb)
+    report = report or function() end
+    local wantElectric = preferElectric ~= false
+    local groups = info.groups or {}
+    local player = api.engine.util.getPlayer()
+    report("Creando linea de tranvia...", false)
+    lineMod.createLine(groups, info.townName or "Tranvia", player, report,
+        function(line, msg, isErr)
+            if isErr or not line then
+                cb(nil, msg, true)
+                return report(msg, true)
+            end
+            report(msg .. " Comprando tranvias...", false)
+            local count = lineMod.vehicleCount(info.length or 0, #groups)
+            local trams = {}
+            pcall(function() trams = lineMod.availableTrams(wantElectric) end)
+            if #trams == 0 then
+                local m = "Linea creada, pero no hay tranvias a la venta este ano. Compralos manualmente."
+                log(m)
+                cb(line, m, true)
+                return report(m, true)
+            end
+            local shape = city.townShape(town)
+            local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
+                or api.type.Vec3f.new(0, 0, 0)
+            lineMod.buyTrams(line, trams[1].id, count, player, pos, wantElectric, report,
+                function(bought)
+                    local m = string.format(
+                        "Done: linea '%s Tranvia' con %d paradas, %d/%d tranvias (%s).",
+                        tostring(info.townName), #groups, bought, count, tostring(trams[1].name))
+                    log(string.format("manifest: town=%s corridorKm=%.2f stops=%d line=%s vehicles=%d/%d model=%s",
+                        tostring(info.townName), (info.length or 0) / 1000, #groups,
+                        tostring(line), bought, count, tostring(trams[1].name)))
+                    cb(line, m, bought < count)
+                    report(m, bought < count)
+                end)
+        end)
 end
 
 return core

@@ -1,9 +1,9 @@
 {
   "modId": "urban_transport_planner",
-  "revision": 7,
-  "modVersion": "0.7.0",
+  "revision": 8,
+  "modVersion": "0.8.0",
   "name": "Urban Tram Planner Alpha",
-  "description": "Experimental town transit planner. v0.7 validates via proposal creation + send results (makeProposalData rejects replaceSegment output at runtime).",
+  "description": "Experimental town transit planner. v0.8 adds stops, tram line and vehicle purchase on the converted corridor.",
   "tags": [
     "Script Mod",
     "Tram",

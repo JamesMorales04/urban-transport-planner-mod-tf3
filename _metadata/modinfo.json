@@ -1,6 +1,6 @@
 {
   "name": "Urban Tram Planner Alpha",
-  "description": "Controlled v0.7 test of native tram-track StreetTemplate replacement (creation-check validation; TRAM/ELECTRIC_TRAM street detection).",
+  "description": "Controlled v0.8: corridor conversion plus stops, tram line and vehicle purchase (recipes credited to bus_loops + vanilla line manager).",
   "tags": [
     "Script Mod",
     "Tram",

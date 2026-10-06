@@ -1,6 +1,26 @@
-URBAN TRAM PLANNER ALPHA 0.7
+URBAN TRAM PLANNER ALPHA 0.8
 ============================
 Build date: 2026-10-06
+
+NEW IN 0.8 (stops + line + trams)
+----------------------------------
+v0.7 proved the conversion end-to-end (Wahai: 4/4 segments, $88064).
+0.8 builds on the converted corridor:
+
+1. PLANIFICAR PARADAS: one two-sided stop per converted edge
+   (>=30 m, no objects), era model (old/mid/new_twosided), plan only.
+2. CONSTRUIR PARADAS: sequential borrowed-segment SimpleProposal builds
+   (recipe credited to working mod bus_loops_1), refused stops never sink
+   the rest; station groups discovered via before/after diff.
+3. CREAR LINEA + TRANVIAS: "<Town> Tranvia" through groups in corridor
+   order (game closes the loop out-and-back), getBestLineAssignment +
+   passenger stopConfig (shipped line-manager twin), newest tram for sale,
+   count = clamp(1, floor(km/500)+1, groups), depot via Carrier.TRAM
+   best-effort (line is still created without depot/vehicles).
+Stops split their edges, so the line uses stable station groups.
+
+Kept from 0.7: creation-check validation (makeProposalData rejects
+replaceSegment output at runtime), sequential safe executor.
 
 ROOT CAUSE FIXED FROM 0.6 (playtest Alteren)
 --------------------------------------------
@@ -27,26 +47,27 @@ Previous fixes kept: TRAM/ELECTRIC_TRAM detection (not rail TRAM_TRACK),
 roadType STREET filter, car-access preservation, bridge/tunnel exclusion,
 no catenaryAdd for streets, sequential build with per-segment refresh.
 
-WHAT 0.7 DOES
+WHAT 0.8 DOES
 -------------
-Same staged scope as 0.5 (one radial control corridor) plus:
+Corridor conversion (0.7, proven in game) plus stops, line and trams:
 
-1. P95 urban radius from town buildings.
-2. Street graph from convertible-or-already-tram STREET edges only.
-3. Real street-tram inventory with street/rail diagnostics.
-4. Structurally compatible source -> target scoring (lanes, forward,
-   roadType, country, car access, width/offset/style/cost).
-5. replaceSegment proposals only; makeProposalData validation gates Build.
-6. Sequential build with per-segment entity refresh + revalidation.
-7. Unit tests: lua tests/run_tests.lua (31 checks, no game needed).
+1-7. (As in 0.7: P95 radius, convertible-street graph, street-tram
+   inventory, structural scoring, replaceSegment-only conversion,
+   sequential safe build, unit tests — now 42 checks.)
+8. Stop planning on converted edges (>=30 m, object-free), era twosided
+   model, before/after station-group discovery with naming.
+9. One radial tram line in corridor order + newest tram for sale +
+   depot-aware best-effort purchase/assignment.
+10. Manifest log line per built network (town, km, stops, line, vehicles).
 
 FULL TARGET — PRESERVED
 -----------------------
 Topology Auto/Ring/Radial/Hybrid, stops, lines, vehicles, bus feeders,
 cargo/CITY SUPPLY, persistent manifest, KEEP/EXTEND/MOVE/ADD/RETIRE
 reconciliation, manual-change respect, Force rebuild, incremental
-recalculation. All reserved until the 0.7 physical conversion passes the
-in-game acceptance test (rails visible + vanilla tram pathing).
+recalculation. Stops/line/vehicles now exist for the control corridor;
+topologies, feeders, cargo and persistence remain until the full service
+is proven in game (tram visibly running the line).
 
 INSTALL / UPDATE
 ----------------
@@ -57,7 +78,7 @@ Replace the existing urban_transport_planner folder. Do NOT merge.
 TEST PROCEDURE
 --------------
 1. Duplicate/manual save; same town as before if possible.
-2. Town panel -> Urban Tram Planner [ALPHA 0.7].
+2. Town panel -> Urban Tram Planner [ALPHA 0.8].
 3. Analyze; expect street tram candidates > 0, real source -> target
    mappings, lanes to add > 0, rejected = 0.
 4. If rejected > 0, DO NOT BUILD; send screenshot + filtered log.
