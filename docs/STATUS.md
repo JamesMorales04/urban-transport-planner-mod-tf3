@@ -4,7 +4,19 @@ Maintained per iteration. Sources of truth (in order): current code, real TF3
 logs, official/community TF3 modding docs, vanilla game scripts, then reasoned
 inference. No imagined APIs.
 
-## Implemented (v0.8, verified)
+## Implemented (v0.9, verified)
+
+- v0.8 playtest (Alteren): corridor + 4 stops + `Alteren Tranvia` line with
+  4 groups created; 0/1 trams (no depot connected). Issues filed by player:
+  stops too close, tracks disconnected at crossings, route efficiency
+  unproven, feeders/cargo missing, depot unhandled.
+- v0.9 stops (`utp_stops`): bus_loops spacing (160 m catchment, 272 m
+  minimum, max 8, widest pair on short corridors); 0.35 km -> 2 stops.
+- Coverage metric (`city.coverage`): buildings within 160 m of corridor.
+- Junction inspect + repair (`utp_junction`): live TRAM lanes per edge,
+  `withTram` per shared node (read-only); guarded false->true repair on
+  corridor pairs only, with re-inspection.
+- Depot guidance + COMPRAR TRANVIAS retry on the existing line.
 
 - v0.7 conversion proven in game (Wahai: 4/4 segments, engine cost $88064).
 - v0.8 stops (`utp_stops`): plan from live corridor (converted, >=30 m,
@@ -62,9 +74,18 @@ inference. No imagined APIs.
 
 ## Partially implemented
 
-- Full service: corridor proven, stops/line/vehicles implemented but
-  awaiting first in-game run (tram visibly serving the line).
+- Full service: line exists but no tram has run it (depot unconnected);
+  junction repair implemented, awaiting in-game before/after numbers.
 - Electric preference with non-electric fallback flag (`electricFallbacks`).
+
+## Pending (in dependency order)
+
+1. v0.9 playtest: junction numbers (expect nodesWithTram == nodes after
+   repair), 2 spaced stops on 0.35 km, line + tram in service.
+2. Bus feeders (need proven trunk + coverage gaps from v0.9 metrics).
+3. Ring / Hybrid / Auto topology reusing the stop+line stack.
+4. Cargo / CITY SUPPLY (demand + supply-chain APIs still to research).
+5. Persistent manifest + reconciliation + Force rebuild.
 
 ## Pending (in dependency order)
 
@@ -130,7 +151,10 @@ inference. No imagined APIs.
 
 ## Next priorities
 
-1. In-game v0.8 on a save copy: corridor -> paradas (expect N>=2 groups)
-   -> linea + tranvias; confirm tram moving with passengers.
-2. If red: classify via stop send-messages / group discovery logs.
-3. Then: Ring/Hybrid/Auto topology reusing the proven stop+line stack.
+1. In-game v0.9 on a save copy: corridor -> DIAGNOSTICAR + REPARAR CRUCES
+   (expect `tranvia en N/N cruces`) -> paradas espaciadas -> linea ->
+   conecta un deposito de tranvias -> COMPRAR TRANVIAS; confirm tram
+   moving with passengers.
+2. If junctions stay at 0 after repair: send `junction:` log lines; the
+   fallback is studying StreetEdgeNodeModifier override semantics.
+3. Then: feeders, Ring/Hybrid/Auto, cargo, persistence (in that order).

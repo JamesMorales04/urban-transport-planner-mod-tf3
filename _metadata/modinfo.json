@@ -1,6 +1,6 @@
 {
   "name": "Urban Tram Planner Alpha",
-  "description": "Controlled v0.8: corridor conversion plus stops, tram line and vehicle purchase (recipes credited to bus_loops + vanilla line manager).",
+  "description": "Controlled v0.9: spaced stops, coverage, junction tram repair, tram repurchase (feeders/cargo scheduled).",
   "tags": [
     "Script Mod",
     "Tram",

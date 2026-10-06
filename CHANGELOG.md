@@ -1,6 +1,26 @@
 # CHANGELOG
 
-## 0.8.0 — stops + tram line + vehicles
+## 0.9.0 — spaced stops, coverage, junction repair, tram repurchase
+
+Playtest Alteren (v0.8): stops built and line created, but 4 stops on
+0.35 km (too close), tram tracks visually disconnected at crossings, no
+tram depot connected (0/1 trams).
+
+- Stops follow bus_loops spacing (CATCHMENT 160 m, SPACING 272 m, MAX 8,
+  widest-spread pair guaranteed on short corridors); omitted-close count
+  reported. 0.35 km now yields 2 stops, not 4.
+- Coverage metric: share of town buildings within 160 m of the corridor,
+  in analysis, logs and UI (route-efficiency evidence).
+- Junction diagnosis + repair (`utp_junction`): read-only inspection of
+  live TRAM lanes per edge and `withTram` connections per shared node;
+  guarded repair flips `withTram` false->true on corridor pairs only,
+  one proposal per node, re-inspects afterwards. Hypothesis: template
+  swap alone leaves junctions at withTram=false (vanilla tool uses
+  overrideLaneConfigs instead).
+- Depot UX: explicit guidance (build a tram depot on a tram street), and
+  COMPRAR TRANVIAS retry on the existing line once connected.
+- Feeders/cargo stay scheduled: feeders need a proven trunk; cargo needs
+  demand/supply-chain APIs. Not half-implemented.
 
 v0.7 proven in game (Wahai: 4/4 corridor segments, engine cost $88064).
 0.8 adds the passenger service on top of the converted corridor:

@@ -1,9 +1,9 @@
 {
   "modId": "urban_transport_planner",
-  "revision": 8,
-  "modVersion": "0.8.0",
+  "revision": 9,
+  "modVersion": "0.9.0",
   "name": "Urban Tram Planner Alpha",
-  "description": "Experimental town transit planner. v0.8 adds stops, tram line and vehicle purchase on the converted corridor.",
+  "description": "Experimental town transit planner. v0.9: spaced stops, coverage metric, junction diagnosis + withTram repair, tram repurchase.",
   "tags": [
     "Script Mod",
     "Tram",

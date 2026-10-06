@@ -36,8 +36,10 @@ local city = ug_require("urban_transport_planner::/urban_transit/utp_city.lua")
 local executor = ug_require("urban_transport_planner::/urban_transit/utp_proposal.lua")
 local stopMod = ug_require("urban_transport_planner::/urban_transit/utp_stops.lua")
 local lineMod = ug_require("urban_transport_planner::/urban_transit/utp_lines.lua")
+local jointMod = ug_require("urban_transport_planner::/urban_transit/utp_junction.lua")
 core.stops = stopMod
 core.lines = lineMod
+core.junctions = jointMod
 
 local function log(msg)
     logger.raw(msg)
@@ -150,6 +152,9 @@ function core.analyze(town, preferElectric)
     result.segments = #path
     result._path = path
     result._shape = { x = shape.x, y = shape.y, z = shape.z, radius = shape.radius }
+    local covFrac, covN = city.coverage(shape.points, path)
+    result.coveragePct = math.floor(covFrac * 100 + 0.5)
+    result.coverageN = covN
     result.costKnown = false
 
     local firstError = nil
@@ -188,11 +193,11 @@ function core.analyze(town, preferElectric)
     result.buildable = result.refused == 0 and result.segments > 0
 
     log(string.format(
-        "analysis %s: buildings=%d radius=%.0fm usableEdges=%d incompatible=%d bridges/tunnels=%d nonStreet=%d currentTpl=%d streetTram=%d corridor=%d/%.0fm refused=%d lanesToAdd=%d",
+        "analysis %s: buildings=%d radius=%.0fm usableEdges=%d incompatible=%d bridges/tunnels=%d nonStreet=%d currentTpl=%d streetTram=%d corridor=%d/%.0fm refused=%d lanesToAdd=%d coverage=%d%%(%d)",
         result.town, result.buildings, result.radius, result.streetEdges, result.incompatibleEdges,
         result.excludedStructure, result.excludedNonStreet,
         result.currentTemplates, result.trackTemplates, result.segments, result.length,
-        result.refused, result.tramLanesToAdd
+        result.refused, result.tramLanesToAdd, result.coveragePct or 0, result.coverageN or 0
     ))
     for mapping, n in pairs(result.sourceTargetCounts) do
         log(string.format("  mapping x%d: %s", n, mapping))
@@ -338,6 +343,71 @@ function core.createLineAndTrams(info, preferElectric, town, report, cb)
                     cb(line, m, bought < count)
                     report(m, bought < count)
                 end)
+        end)
+end
+
+-- v0.9: retry tram purchase on an existing line (depot connected later).
+function core.buyTramsForLine(info, town, preferElectric, report, cb)
+    report = report or function() end
+    local wantElectric = preferElectric ~= false
+    local player = api.engine.util.getPlayer()
+    local trams = {}
+    pcall(function() trams = lineMod.availableTrams(wantElectric) end)
+    if #trams == 0 then
+        local m = "No hay tranvias a la venta este ano. Compralos manualmente."
+        cb(0, m, true)
+        return report(m, true)
+    end
+    local count = lineMod.vehicleCount(info.length or 0, #(info.groups or {}))
+    local shape = city.townShape(town)
+    local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
+        or api.type.Vec3f.new(0, 0, 0)
+    report(string.format("Comprando %d tranvia(s) (%s)...", count, tostring(trams[1].name)), false)
+    lineMod.buyTrams(info.line, trams[1].id, count, player, pos, wantElectric, report,
+        function(bought)
+            local m = string.format("Tranvias: %d/%d (%s).", bought, count, tostring(trams[1].name))
+            log(string.format("manifest-buy: line=%s vehicles=%d/%d model=%s",
+                tostring(info.line), bought, count, tostring(trams[1].name)))
+            cb(bought, m, bought < count)
+            report(m, bought < count)
+        end)
+end
+
+-- v0.9: read-only junction diagnosis + guarded withTram repair.
+function core.checkAndRepairJunctions(town, preferElectric, report, cb)
+    report = report or function() end
+    local plan = core.analyze(town, preferElectric)
+    if plan.error then
+        cb(nil, plan.error, true)
+        return report(plan.error, true)
+    end
+    local insp = jointMod.inspectCorridor(plan._path)
+    for _, d in ipairs(insp.detail) do log("junction: " .. d) end
+    log(string.format("junction inspect: edgesWithTram=%d/%d nodesWithTram=%d/%d",
+        insp.edgesWithTram, insp.edges, insp.nodesWithTram, insp.nodes))
+    if insp.nodesWithTram >= insp.nodes then
+        local m = string.format(
+            "Cruces OK: via fisica en %d/%d segmentos y tranvia en %d/%d cruces. Sin reparacion.",
+            insp.edgesWithTram, insp.edges, insp.nodesWithTram, insp.nodes)
+        cb(insp, m, false)
+        return report(m, false)
+    end
+    local player = api.engine.util.getPlayer()
+    local context = executor.newContext(player)
+    report(string.format(
+        "Via fisica %d/%d, cruces con tranvia %d/%d. Reparando...",
+        insp.edgesWithTram, insp.edges, insp.nodesWithTram, insp.nodes), false)
+    jointMod.repairCorridor(plan._path, player, context, report,
+        function(repaired, refused, deficient)
+            local insp2 = jointMod.inspectCorridor(plan._path)
+            for _, d in ipairs(insp2.detail) do log("junction-recheck: " .. d) end
+            local m = string.format(
+                "Cruces: %d reparados, %d rechazados; ahora tranvia en %d/%d cruces (via %d/%d).",
+                repaired, refused, insp2.nodesWithTram, insp2.nodes,
+                insp2.edgesWithTram, insp2.edges)
+            log(m)
+            cb(insp2, m, insp2.nodesWithTram < insp2.nodes)
+            report(m, insp2.nodesWithTram < insp2.nodes)
         end)
 end
 

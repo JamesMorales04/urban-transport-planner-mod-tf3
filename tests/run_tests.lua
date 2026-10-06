@@ -55,6 +55,7 @@ local catalog = ug_require("urban_transport_planner::/urban_transit/utp_street_c
 local city = ug_require("urban_transport_planner::/urban_transit/utp_city.lua")
 local stopMod = ug_require("urban_transport_planner::/urban_transit/utp_stops.lua")
 local lineMod = ug_require("urban_transport_planner::/urban_transit/utp_lines.lua")
+local jointMod = ug_require("urban_transport_planner::/urban_transit/utp_junction.lua")
 
 check("logger.errorText string", logger.errorText("boom") == "boom")
 check("logger.errorText table", logger.errorText({ message = "m1" }) == "message=m1")
@@ -222,6 +223,59 @@ do
             tostring(skipped.objects), tostring(skipped.unconverted)))
     local empty = stopMod.planStops(nil)
     check("planStops nil-safe", #empty == 0)
+end
+
+-- 10b: bus_loops-style spacing along path order.
+do
+    local function E(ent, len)
+        return { entity = ent, satisfies = true, length = len, hasObjects = false }
+    end
+    local path5 = { E(1, 100), E(2, 100), E(3, 100), E(4, 100), E(5, 100) }
+    local plan5, sk5 = stopMod.planStops(path5)
+    check("spacing spreads 5x100m to 2 stops", #plan5 == 2
+        and plan5[1].entity == 1 and plan5[2].entity == 4,
+        "got " .. table.concat((function()
+            local t = {} for _, e in ipairs(plan5) do t[#t + 1] = e.entity end return t
+        end)(), ","))
+    check("spacing counts omitted", sk5.spacing == 3, "spacing=" .. tostring(sk5.spacing))
+    local short3 = { E(1, 60), E(2, 60), E(3, 60) }
+    local planS = stopMod.planStops(short3)
+    check("short corridor keeps widest pair", #planS == 2
+        and planS[1].entity == 1 and planS[2].entity == 3)
+    local long12 = {}
+    for i = 1, 12 do long12[#long12 + 1] = E(i, 300) end
+    local planL = stopMod.planStops(long12)
+    check("stops capped at MAX_STOPS", #planL == stopMod.MAX_STOPS, "#=" .. #planL)
+end
+
+-- 10c: corridor coverage (pure geometry).
+do
+    local pts = { { 0, 0 }, { 100, 0 }, { 1000, 1000 } }
+    local path = { { x = 0, y = 0 }, { x = 200, y = 0 } }
+    local frac, n = city.coverage(pts, path, 160)
+    check("coverage 2/3 near", n == 2 and math.abs(frac - 2 / 3) < 1e-9,
+        string.format("n=%s frac=%s", tostring(n), tostring(frac)))
+    local f0 = city.coverage({}, path)
+    check("coverage empty-safe", f0 == 0)
+end
+
+-- 10d: corridor joints pair consecutive edges per shared node (pure).
+do
+    local jp = {
+        { entity = 11, node0 = 1, node1 = 2 },
+        { entity = 22, node0 = 2, node1 = 3 },
+        { entity = 33, node0 = 3, node1 = 4 },
+    }
+    local joints = jointMod.corridorJoints(jp)
+    check("joints link consecutive pairs", #joints == 2, "#=" .. #joints)
+    local okPairs = true
+    for _, j in ipairs(joints) do
+        if not ((j.edgeA == 11 and j.edgeB == 22) or (j.edgeA == 22 and j.edgeB == 33)) then
+            okPairs = false
+        end
+    end
+    check("joints carry shared node", okPairs and joints[1].node == 2)
+    check("joints nil-safe", #jointMod.corridorJoints(nil) == 0)
 end
 
 -- 11: stop model era (stub year 2000 -> new).

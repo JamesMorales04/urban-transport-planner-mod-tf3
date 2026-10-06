@@ -295,6 +295,26 @@ local function traversalCost(e)
 end
 city.traversalCost = traversalCost
 
+-- Share of town buildings within radius of the corridor (midpoint
+-- approximation, documented heuristic for route-efficiency reporting).
+city.COVERAGE_RADIUS = 160
+function city.coverage(points, path, radius)
+    radius = radius or city.COVERAGE_RADIUS
+    if not points or #points == 0 or not path or #path == 0 then return 0, 0 end
+    local served = 0
+    for _, p in ipairs(points) do
+        local px, py = p[1], p[2]
+        for _, e in ipairs(path) do
+            local dx, dy = px - (e.x or 0), py - (e.y or 0)
+            if dx * dx + dy * dy <= radius * radius then
+                served = served + 1
+                break
+            end
+        end
+    end
+    return served / #points, served
+end
+
 function city.dijkstra(graph, startNode, goalNode, excluded)
     if startNode == goalNode then return {}, 0 end
     local dist = { [startNode] = 0 }

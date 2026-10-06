@@ -1,4 +1,4 @@
--- Town-window UI for Urban Tram Planner Alpha v0.8.
+-- Town-window UI for Urban Tram Planner Alpha v0.9.
 
 local module = nil
 
@@ -35,7 +35,7 @@ local function build()
         return table.concat(out, " | ")
     end
 
-    local Content = react.RegisterRecipe("urban_transit_alpha_Content_v08", function(params)
+    local Content = react.RegisterRecipe("urban_transit_alpha_Content_v09", function(params)
         local town = params.entityId
         local previewState = react.useState(nil)
         local busyState = react.useState(false)
@@ -45,9 +45,9 @@ local function build()
         local lineInfoState = react.useState(nil)
 
         local children = {
-            text("ALPHA 0.8 - Corredor + paradas + linea de tranvia."),
-            text("Flujo: analiza -> construye corredor -> planifica paradas -> construye paradas -> crea linea y compra tranvias. Las paradas dividen sus segmentos: la linea usa grupos de estacion (estables), no segmentos."),
-            text("Ring/Hybrid, feeders, carga y recalculo persistente siguen pendientes (ver docs/STATUS.md)."),
+            text("ALPHA 0.9 - Corredor + paradas espaciadas + linea + cruces."),
+            text("Flujo: analiza -> construye corredor -> diagnostica/repara cruces -> planifica paradas -> construye paradas -> crea linea y tranvias. Las paradas siguen cobertura y espaciado (nunca una por segmento)."),
+            text("Feeders de bus, carga y recalculo persistente: programados tras validar el tranvia en servicio (ver docs/STATUS.md)."),
             builtin.CheckBox{
                 value = electricState:old() and 1 or 0,
                 label = "Preferir tranvia electrico / catenaria",
@@ -61,7 +61,7 @@ local function build()
             },
             builtin.Button{
                 meta = { class = "primary", enabled = not busyState:old() },
-                content = text("Analizar corredor radial v0.8"),
+                content = text("Analizar corredor radial v0.9"),
                 onClick = function()
                     statusState:set("Analizando StreetTemplates reales y validando propuestas...")
                     local r = core.analyzeSafe(town, electricState:old())
@@ -100,8 +100,9 @@ local function build()
                     pv.currentTemplates or 0, pv.trackTemplates or 0, pv.templateRepoTotal or 0, pv.templateRepoAvailable or 0
                 ))
                 children[#children + 1] = text(string.format(
-                    "Corredor: %d segmentos | %.2f km | con via: %d | electricos: %d",
-                    pv.segments or 0, (pv.length or 0) / 1000, pv.alreadyTram or 0, pv.alreadyElectric or 0
+                    "Corredor: %d segmentos | %.2f km | con via: %d | electricos: %d | cobertura: %d%% (%d edificios <160m)",
+                    pv.segments or 0, (pv.length or 0) / 1000, pv.alreadyTram or 0, pv.alreadyElectric or 0,
+                    pv.coveragePct or 0, pv.coverageN or 0
                 ))
                 children[#children + 1] = text(string.format(
                     "Carriles de via a agregar: %d | fallback no electrico: %d",
@@ -125,7 +126,7 @@ local function build()
                     children[#children + 1] = text("Todos los segmentos pasaron la validacion. Haz una copia/manual save antes de la prueba fisica.")
                     children[#children + 1] = builtin.Button{
                         meta = { class = "primary", enabled = not busyState:old() },
-                        content = text("CONSTRUIR CORREDOR DE PRUEBA v0.8"),
+                        content = text("CONSTRUIR CORREDOR DE PRUEBA v0.9"),
                         onClick = function()
                             busyState:set(true)
                             statusState:set("Iniciando construccion...")
@@ -148,12 +149,33 @@ local function build()
             end
         end
 
-        -- v0.8: paradas y linea sobre el corredor construido.
+        -- v0.9: cruces, paradas y linea sobre el corredor construido.
         do
+            children[#children + 1] = builtin.Button{
+                meta = { class = "primary", enabled = not busyState:old() },
+                content = text("DIAGNOSTICAR + REPARAR CRUCES"),
+                onClick = function()
+                    busyState:set(true)
+                    statusState:set("Inspeccionando cruces del corredor...")
+                    local ok, err = pcall(core.checkAndRepairJunctions, town, electricState:old(),
+                        function(msg, isError)
+                            statusState:set(msg)
+                            if isError then core.log(msg) end
+                        end,
+                        function(insp, summary, isError)
+                            busyState:set(false)
+                            statusState:set(summary)
+                        end)
+                    if not ok then
+                        statusState:set("Error inesperado: " .. core.errorText(err))
+                        busyState:set(false)
+                    end
+                end,
+            }
             local sp = stopPlanState:old()
             children[#children + 1] = builtin.Button{
                 meta = { class = "primary", enabled = not busyState:old() },
-                content = text("PLANIFICAR PARADAS v0.8"),
+                content = text("PLANIFICAR PARADAS v0.9"),
                 onClick = function()
                     statusState:set("Planificando paradas sobre el corredor actual...")
                     local r = core.planStopsSafe(town, electricState:old())
@@ -168,15 +190,19 @@ local function build()
                 else
                     local sk = sp.skipped or {}
                     children[#children + 1] = text(string.format(
-                        "Paradas ubicables: %d (minimo 2) | sin convertir: %d | cortas: %d | con objetos: %d",
-                        sp.stops or 0, sk.unconverted or 0, sk.short or 0, sk.objects or 0
+                        "Paradas ubicables: %d (minimo 2, separadas 272m) | sin convertir: %d | cortas: %d | con objetos: %d | muy juntas omitidas: %d",
+                        sp.stops or 0, sk.unconverted or 0, sk.short or 0, sk.objects or 0,
+                        sk.spacing or 0
                     ))
                     children[#children + 1] = text(string.format(
                         "Tranvias a la venta: %d%s | deposito tranviario: %s",
                         sp.tramModels or 0,
                         sp.tramModelName and (" (" .. sp.tramModelName .. ")") or "",
-                        sp.depotFound and "si" or "no (la linea se crea igual; compra manual)"
+                        sp.depotFound and "si" or "NO"
                     ))
+                    if not sp.depotFound then
+                        children[#children + 1] = text("Sin deposito: la linea se crea igual. Para tranvias automaticos, construye un deposito de tranvias pegado a una calle con via y luego usa COMPRAR TRANVIAS.")
+                    end
                     if sp.buildable then
                         children[#children + 1] = builtin.Button{
                             meta = { class = "primary", enabled = not busyState:old() },
@@ -226,6 +252,37 @@ local function build()
                             function(line, msg, isError)
                                 busyState:set(false)
                                 statusState:set(msg)
+                                if line then
+                                    lineInfoState:set({
+                                        groups = li.groups,
+                                        length = li.length,
+                                        townName = li.townName,
+                                        line = line,
+                                    })
+                                end
+                            end)
+                        if not ok then
+                            statusState:set("Error inesperado: " .. core.errorText(err))
+                            busyState:set(false)
+                        end
+                    end,
+                }
+            end
+            if li and li.line then
+                children[#children + 1] = builtin.Button{
+                    meta = { class = "primary", enabled = not busyState:old() },
+                    content = text("COMPRAR TRANVIAS (linea existente)"),
+                    onClick = function()
+                        busyState:set(true)
+                        statusState:set("Buscando deposito...")
+                        local ok, err = pcall(core.buyTramsForLine, li, town, electricState:old(),
+                            function(msg, isError)
+                                statusState:set(msg)
+                                if isError then core.log(msg) end
+                            end,
+                            function(bought, msg, isError)
+                                busyState:set(false)
+                                statusState:set(msg)
                             end)
                         if not ok then
                             statusState:set("Error inesperado: " .. core.errorText(err))
@@ -245,11 +302,11 @@ local function build()
         return not (params.state and params.state.isMapEditor)
     end
 
-    m.Plugin = react.RegisterPluginRecipe(town_eow.TownEowExtensionPoint, "urban_transit_alpha_Plugin_v08", function(params)
+    m.Plugin = react.RegisterPluginRecipe(town_eow.TownEowExtensionPoint, "urban_transit_alpha_Plugin_v09", function(params)
         local ok, result = pcall(function()
             return builtin.BoxLayout{
                 child = content_card.ContentCard{
-                    title = "Urban Tram Planner [ALPHA 0.8]",
+                    title = "Urban Tram Planner [ALPHA 0.9]",
                     initialCalloutTextPermanent = "",
                     recipeAndParamPermanent = content_card.makeRecipeAndParam(Content, { entityId = params.entityId }),
                     gameCtx = params.gameCtx,

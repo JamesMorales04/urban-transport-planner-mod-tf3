@@ -40,6 +40,10 @@ end)
 stops.MIN_EDGE_LENGTH = 30        -- bus_loops: 10 m crossing clearance each side
 stops.STATION_SCAN_RADIUS = 80    -- bus_loops before/after diff radius (m)
 stops.NEW_OBJECT_ID = -400000000 -- bus_loops: engine asserts new edge objects in this range
+stops.CATCHMENT = 160             -- small street stops reach 160 m (bus_loops)
+stops.STOP_SPACING = 272          -- bus_loops SPACING = CATCHMENT*1.7 (catchments just overlap)
+stops.MAX_STOPS = 8               -- bus_loops cap
+stops.MIN_STOPS_LINE = 2          -- a radial line needs 2+ groups
 
 local function logRaw(msg)
     if logger and logger.raw then logger.raw(msg)
@@ -71,20 +75,49 @@ function stops.stopModel()
     return "::/stations/street/small_stops/small_new_twosided.con"
 end
 
--- Eligible stop edges from a live corridor path: converted to tram,
--- long enough, free of objects, normal structure.
+-- Eligible stop edges from a live corridor path, in path order, with
+-- bus_loops-style spacing: stops never closer than STOP_SPACING (midpoint
+-- chain distance), capped at MAX_STOPS, at least MIN_STOPS_LINE spread
+-- as far apart as possible when the corridor is short.
+-- Returns plan, {unconverted, short, objects, spacing, eligible}.
 function stops.planStops(path)
-    local plan, skipped = {}, { short = 0, objects = 0, unconverted = 0 }
+    local eligible = {}
+    local skipped = { unconverted = 0, short = 0, objects = 0, spacing = 0, eligible = 0 }
+    local cum = 0
     for _, e in ipairs(path or {}) do
+        local len = e.length or 0
         if not e.satisfies then
             skipped.unconverted = skipped.unconverted + 1
-        elseif (e.length or 0) < stops.MIN_EDGE_LENGTH then
+        elseif len < stops.MIN_EDGE_LENGTH then
             skipped.short = skipped.short + 1
         elseif e.hasObjects then
             skipped.objects = skipped.objects + 1
         else
-            plan[#plan + 1] = e
+            cum = cum + len
+            eligible[#eligible + 1] = { rec = e, mid = cum - len / 2 }
         end
+    end
+    skipped.eligible = #eligible
+
+    local plan = {}
+    local function push(entry)
+        plan[#plan + 1] = entry.rec
+        entry.used = true
+    end
+    -- Greedy spread along the corridor.
+    local lastMid = nil
+    for _, entry in ipairs(eligible) do
+        if lastMid == nil or entry.mid - lastMid >= stops.STOP_SPACING then
+            push(entry)
+            lastMid = entry.mid
+            if #plan >= stops.MAX_STOPS then break end
+        else
+            skipped.spacing = skipped.spacing + 1
+        end
+    end
+    -- Short corridor: still guarantee the widest-spread pair when possible.
+    if #plan < stops.MIN_STOPS_LINE and #eligible >= stops.MIN_STOPS_LINE then
+        plan = { eligible[1].rec, eligible[#eligible].rec }
     end
     return plan, skipped
 end

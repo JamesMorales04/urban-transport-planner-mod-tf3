@@ -1,4 +1,4 @@
-URBAN TRAM PLANNER ALPHA 0.8
+URBAN TRAM PLANNER ALPHA 0.9
 ============================
 Build date: 2026-10-06
 
@@ -78,12 +78,13 @@ Replace the existing urban_transport_planner folder. Do NOT merge.
 TEST PROCEDURE
 --------------
 1. Duplicate/manual save; same town as before if possible.
-2. Town panel -> Urban Tram Planner [ALPHA 0.8].
+2. Town panel -> Urban Tram Planner [ALPHA 0.9].
 3. Analyze; expect street tram candidates > 0, real source -> target
    mappings, lanes to add > 0, rejected = 0.
 4. If rejected > 0, DO NOT BUILD; send screenshot + filtered log.
-5. If rejected = 0, save, Build, verify rails/catenary, then vanilla
-   stops + manual tram line over the corridor.
+5. If rejected = 0, save, Build, DIAGNOSTICAR + REPARAR CRUCES, then
+   PLANIFICAR/CONSTRUIR PARADAS, CREAR LINEA + TRANVIAS. The acceptance
+   test is a UTP tram serving the line.
 
 LOG FILTER
 ----------
