@@ -1,0 +1,33 @@
+# Transport Fever 3 mod - Urban Tram Planner
+# Logs / crash dumps / generated artifacts
+*.log
+stdout.txt
+crash_dump/
+shader_cache/
+texture_cache/
+*.dmp
+*.bak
+*.tree.lua.bak
+
+# Build / packaging artifacts
+*.zip
+dist/
+build/
+out/
+
+# Lua caches / editor artifacts
+luac.out
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+/tmp/
+tests/tmp/
+coverage/
+
+# Keep everything else: mod.json, _metadata/, content/, readme, docs, tests

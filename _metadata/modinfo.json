@@ -1,0 +1,11 @@
+{
+  "name": "Urban Tram Planner Alpha",
+  "description": "Controlled v0.6 test of native tram-track StreetTemplate replacement (TRAM/ELECTRIC_TRAM street detection).",
+  "tags": [
+    "Script Mod",
+    "Tram",
+    "Public Transport",
+    "Experimental"
+  ],
+  "url": ""
+}

@@ -1,0 +1,28 @@
+{
+  "modId": "urban_transport_planner",
+  "revision": 6,
+  "modVersion": "0.6.0",
+  "name": "Urban Tram Planner Alpha",
+  "description": "Experimental town transit planner. v0.6 fixes street tram detection (TRAM/ELECTRIC_TRAM) and hardens sequential construction.",
+  "tags": [
+    "Script Mod",
+    "Tram",
+    "Public Transport",
+    "Experimental"
+  ],
+  "severityAdd": "None",
+  "severityRemove": "Warning",
+  "cosmetic": false,
+  "dependencies": null,
+  "incompatibilities": null,
+  "params": null,
+  "preRunScript": {
+    "fileName": ""
+  },
+  "postRunScript": {
+    "fileName": ""
+  },
+  "runScript": {
+    "fileName": ""
+  }
+}
