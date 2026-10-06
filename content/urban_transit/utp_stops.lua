@@ -44,6 +44,7 @@ stops.CATCHMENT = 160             -- small street stops reach 160 m (bus_loops)
 stops.STOP_SPACING = 272          -- bus_loops SPACING = CATCHMENT*1.7 (catchments just overlap)
 stops.MAX_STOPS = 8               -- bus_loops cap
 stops.MIN_STOPS_LINE = 2          -- a radial line needs 2+ groups
+stops.SERVED_SKIP_RADIUS = 80     -- an edge-object stop this close already serves the spot
 
 local function logRaw(msg)
     if logger and logger.raw then logger.raw(msg)
@@ -61,6 +62,22 @@ local function getComp(entity, name)
     if not okType or ct == nil then return nil end
     local ok, comp = pcall(api.engine.getComponent, entity, ct)
     return ok and comp or nil
+end
+
+local function xyz(v)
+    if v == nil then return nil end
+    local ok, x, y = pcall(function() return v.x or v[1], v.y or v[2] end)
+    if ok and x ~= nil then return x, y end
+    return nil
+end
+
+local function stationMid(s)
+    local bv = getComp(s, "BOUNDING_VOLUME")
+    if not bv or not bv.bbox then return nil end
+    local x0, y0 = xyz(bv.bbox.min)
+    local x1, y1 = xyz(bv.bbox.max)
+    if not x0 or not x1 then return nil end
+    return { (x0 + x1) / 2, (y0 + y1) / 2 }
 end
 
 -- Era-appropriate two-sided stop model (bus_loops stopModel thresholds).
@@ -191,6 +208,44 @@ function stops.makeStopProposal(edgeEntity, model, player)
     return proposal, nil
 end
 
+-- KEEP (idempotency): midpoints of existing edge-object stations.
+-- spots = {{x, y}}. Pure filter: served edges are kept, not rebuilt.
+function stops.applyKeep(plan, spots, radius)
+    radius = radius or stops.SERVED_SKIP_RADIUS
+    local build, kept = {}, 0
+    for _, e in ipairs(plan or {}) do
+        local served = false
+        if spots then
+            for _, s in ipairs(spots) do
+                local dx, dy = (e.x or 0) - (s[1] or 0), (e.y or 0) - (s[2] or 0)
+                if dx * dx + dy * dy <= radius * radius then
+                    served = true
+                    break
+                end
+            end
+        end
+        if served then kept = kept + 1
+        else build[#build + 1] = e end
+    end
+    return build, kept
+end
+
+-- Midpoints of edge-object stations in a set (for KEEP checks).
+function stops.servedSpots(stations)
+    local spots = {}
+    for s in pairs(stations or {}) do
+        local isEdgeObject = false
+        pcall(function()
+            isEdgeObject = getComp(s, "EDGE_OBJECT") ~= nil
+        end)
+        if isEdgeObject then
+            local m = stationMid(s)
+            if m then spots[#spots + 1] = m end
+        end
+    end
+    return spots
+end
+
 -- Snapshot STATION entities near each planned stop, to diff afterwards.
 function stops.snapshotStations(plan)
     local before = {}
@@ -251,30 +306,35 @@ function stops.buildStops(plan, model, player, context, report, onDone)
     step(1)
 end
 
--- Find new stops in corridor order; name them; return station groups.
-function stops.discoverGroups(plan, before, townName)
-    local groups = {}
+-- Find stops in corridor order; name them; return station groups.
+-- includeExisting=true also picks up pre-existing (kept) stops.
+function stops.discoverGroups(plan, before, townName, includeExisting)
+    local groups, seenG = {}, {}
     local used = {}
     for i, e in ipairs(plan) do
         local ok, near = pcall(api.engine.util.octree.findEntitiesInCircle,
             api.type.Vec2f.new(e.x, e.y), stops.STATION_SCAN_RADIUS,
             api.type.ComponentType.STATION)
         for _, s in ipairs(ok and near or {}) do
-            if not before[s] and getComp(s, "EDGE_OBJECT") then
+            if (includeExisting or not before[s]) and getComp(s, "EDGE_OBJECT") then
                 local okG, g = pcall(api.engine.system.stationGroupSystem.getStationGroup, s)
-                if okG and g and g >= 0 then
+                if okG and g and g >= 0 and not seenG[g] then
+                    seenG[g] = true
                     groups[#groups + 1] = g
-                    local base = tostring(townName) .. " Tranvia " .. tostring(#groups)
-                    if not used[base] then
-                        used[base] = true
-                        pcall(api.cmd.sendCommand, api.cmd.makeEntitySetNameCmd(g, base))
+                    -- Rename only stops we built; never rename pre-existing ones.
+                    if not before[s] then
+                        local base = tostring(townName) .. " Tranvia " .. tostring(#groups)
+                        if not used[base] then
+                            used[base] = true
+                            pcall(api.cmd.sendCommand, api.cmd.makeEntitySetNameCmd(g, base))
+                        end
                     end
                     break
                 end
             end
         end
         if #groups < i then
-            logRaw(string.format("stop %d: no new station group found nearby", i))
+            logRaw(string.format("stop %d: no station group found nearby", i))
         end
     end
     return groups

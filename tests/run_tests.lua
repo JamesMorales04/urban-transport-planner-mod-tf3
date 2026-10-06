@@ -314,6 +314,34 @@ do
     check("joints nil-safe", #jointMod.corridorJoints(nil) == 0)
 end
 
+-- 10f: KEEP filter converges (served edges kept, gaps built).
+do
+    local plan = {
+        { entity = 1, x = 0, y = 0 },
+        { entity = 2, x = 300, y = 0 },
+        { entity = 3, x = 600, y = 0 },
+    }
+    local spots = { { 5, 0 } }
+    local build, kept = stopMod.applyKeep(plan, spots)
+    check("applyKeep skips served", #build == 2 and kept == 1,
+        string.format("build=%d kept=%d", #build, kept))
+    local build2, kept2 = stopMod.applyKeep(plan, nil)
+    check("applyKeep nil-safe builds all", #build2 == 3 and kept2 == 0)
+end
+
+-- 10g: demand scoring + sector candidates (pure).
+do
+    check("loopScore served per km", math.abs(city.loopScore(100, 500) - 200) < 1e-9)
+    check("loopScore zero-safe", city.loopScore(0, 0) == 0)
+    local shape = { x = 0, y = 0, radius = 200, points = {} }
+    for i = 1, 10 do shape.points[#shape.points + 1] = { 190, 0, 190 } end
+    for i = 1, 4 do shape.points[#shape.points + 1] = { -190, 0, 190 } end
+    local cands = city.candidateSectors(shape, 3)
+    check("candidateSectors ranks densest first",
+        #cands >= 2 and cands[1].buildings == 10 and cands[1].x > 0,
+        #cands > 0 and ("n=" .. cands[1].buildings) or "none")
+end
+
 -- 10e: loop closure on a ring, open fallback on a line (pure).
 do
     local function E(ent, n0, n1)

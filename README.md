@@ -38,10 +38,10 @@ Copy/replace the folder into the TF3 `staging_area` (never merge old files):
 
 Then enable the mod and test on a COPY of the save.
 
-## Test procedure (v0.11)
+## Test procedure (v0.12)
 
 1. Duplicate/manual save. Preferably open the same town as previous tests.
-2. Town panel → Urban Tram Planner [ALPHA 0.11].
+2. Town panel → Urban Tram Planner [ALPHA 0.12].
 3. Leave electric preference enabled; press Analyze.
 4. Expect: street tram candidates > 0 (not rail tracks), real
    `source -> target` mappings, `lanes to add > 0` on fresh roads,
@@ -68,5 +68,5 @@ luac -p content/urban_transit/*.lua
 
 ## Versioning
 
-`mod.json` `revision` is the loader's version (currently 11);
+`mod.json` `revision` is the loader's version (currently 12);
 `modVersion` mirrors the alpha (`0.7.0`). See `CHANGELOG.md`.

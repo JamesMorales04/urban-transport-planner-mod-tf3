@@ -1,6 +1,21 @@
 # CHANGELOG
 
-## 0.11.0 — crash fix + loop-closed corridors
+## 0.12.0 — idempotency, demand-scored routes, line health
+
+Player report (v0.11): both lines overlap to the same side, repeat
+clicks duplicate stops/lines, big-city route still wrong side.
+
+- Stops KEEP: edges already served by an edge-object stop are kept, only
+  gaps get new stops; repeat clicks converge (report kept/new).
+- Lines reuse by exact name (`getLinesForPlayer`); vehicles top-up to
+  target (`getLineVehicles`) instead of blind re-buy.
+- Route candidates: top-3 outer sectors each get a loop, scored by
+  served buildings per km; winner built, all logged (`candidate N:`).
+  Ida uses the loop order, Vuelta the reverse — opposite sides of the
+  loop by construction.
+- Line health (`getProblemLines`): VERIFICAR LINEAS shows the engine
+  verdict per line, including NO_PATH.
+- Pre-existing stops are never renamed (only stops we build).
 
 Two findings from the v0.10 playtest (Alteren/Myklebustad):
 

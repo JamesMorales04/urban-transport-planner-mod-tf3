@@ -194,6 +194,18 @@ function city.streetGraph(shape, preferElectric)
 end
 
 function city.radialTarget(shape)
+    local cands = city.candidateSectors(shape, 1)
+    if cands[1] then return cands[1].x, cands[1].y, cands[1].buildings end
+    local far, farD = nil, -1
+    for _, p in ipairs(shape.points) do
+        if p[3] > farD then far, farD = p, p[3] end
+    end
+    if far then return far[1], far[2], 1 end
+    return shape.x + shape.radius, shape.y, 0
+end
+
+-- Top-k outer sectors by buildings (demand candidates for loop scoring).
+function city.candidateSectors(shape, k)
     local sectors = {}
     for i = 1, city.SECTORS do sectors[i] = { n = 0, sx = 0, sy = 0, sr = 0 } end
     for _, p in ipairs(shape.points) do
@@ -207,29 +219,38 @@ function city.radialTarget(shape)
             s.n, s.sx, s.sy, s.sr = s.n + 1, s.sx + p[1], s.sy + p[2], s.sr + r
         end
     end
-    local best = nil
+    local list = {}
     for _, s in ipairs(sectors) do
-        if s.n > 0 and (not best or s.n > best.n or (s.n == best.n and s.sr > best.sr)) then
-            best = s
+        if s.n > 0 then
+            list[#list + 1] = { x = s.sx / s.n, y = s.sy / s.n, buildings = s.n, sr = s.sr }
         end
     end
-    if best then return best.sx / best.n, best.sy / best.n, best.n end
-    local far, farD = nil, -1
-    for _, p in ipairs(shape.points) do
-        if p[3] > farD then far, farD = p, p[3] end
-    end
-    if far then return far[1], far[2], 1 end
-    return shape.x + shape.radius, shape.y, 0
+    table.sort(list, function(a, b)
+        if a.buildings ~= b.buildings then return a.buildings > b.buildings end
+        return a.sr > b.sr
+    end)
+    local out = {}
+    for i = 1, math.min(k or 3, #list) do out[#out + 1] = list[i] end
+    return out
+end
+
+-- Served buildings per kilometre (route-efficiency score, higher wins).
+function city.loopScore(served, lengthM)
+    return served / math.max(0.05, (lengthM or 0) / 1000)
 end
 
 function city.pickEndpoints(graph, shape)
+    local tx, ty, sectorBuildings = city.radialTarget(shape)
+    return city.pickEndpointsAt(graph, shape, tx, ty, sectorBuildings)
+end
+
+function city.pickEndpointsAt(graph, shape, tx, ty, sectorBuildings)
     local centerEdge, centerD = nil, math.huge
     for _, e in pairs(graph.edges) do
         local d = (e.x - shape.x) ^ 2 + (e.y - shape.y) ^ 2
         if d < centerD then centerEdge, centerD = e, d end
     end
     if not centerEdge then return nil, nil, nil end
-    local tx, ty, sectorBuildings = city.radialTarget(shape)
     local outerEdge, outerScore = nil, math.huge
     for _, e in pairs(graph.edges) do
         if e.entity ~= centerEdge.entity then

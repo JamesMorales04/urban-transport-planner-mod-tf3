@@ -1,9 +1,9 @@
 {
   "modId": "urban_transport_planner",
-  "revision": 11,
-  "modVersion": "0.11.0",
+  "revision": 12,
+  "modVersion": "0.12.0",
   "name": "Urban Tram Planner Alpha",
-  "description": "Experimental town transit planner. v0.11: crash fix (implicit global), loop-closed corridors, ida+vuelta as loop directions.",
+  "description": "Experimental town transit planner. v0.12: idempotent stops/lines, demand-scored loop candidates, line health verdict.",
   "tags": [
     "Script Mod",
     "Tram",

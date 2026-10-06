@@ -136,21 +136,42 @@ function core.analyze(town, preferElectric)
         return result
     end
 
-    local centerEdge, outerEdge, target = city.pickEndpoints(graph, shape)
-    if not centerEdge or not outerEdge then
-        result.error = "No pude elegir los extremos del corredor radial."
-        return result
+    -- v0.12 demand-scored candidates: up to 3 outer sectors, each with
+    -- its own loop; winner = most served buildings per kilometre.
+    local bestPath, bestTarget, bestClosed, bestScore, bestCov = nil, nil, false, -1, 0
+    local candidateCount = 0
+    for rank, sector in ipairs(city.candidateSectors(shape, 3)) do
+        local centerEdge, outerEdge, target =
+            city.pickEndpointsAt(graph, shape, sector.x, sector.y, sector.buildings)
+        if centerEdge and outerEdge then
+            local path, loopClosed = city.loopCorridor(graph, centerEdge, outerEdge)
+            if path and #path >= 2 then
+                local length = 0
+                for _, e in ipairs(path) do length = length + (e.length or 0) end
+                local covFrac, covN = city.coverage(shape.points, path)
+                local score = city.loopScore(covN, length)
+                candidateCount = candidateCount + 1
+                log(string.format(
+                    "candidate %d: sector=%d buildings len=%.0fm loop=%s coverage=%d score=%.1f",
+                    rank, sector.buildings, length, tostring(loopClosed),
+                    covN, score))
+                if score > bestScore then
+                    bestPath, bestTarget, bestClosed, bestScore, bestCov =
+                        path, target, loopClosed, score, covN
+                end
+            end
+        end
     end
-
-    local path, loopClosed = city.loopCorridor(graph, centerEdge, outerEdge)
-    if not path or #path < 2 then
+    if not bestPath then
         result.error = "No encontre un camino continuo centro-periferia usando solo calles convertibles a tranvia."
         return result
     end
+    local path, target, loopClosed = bestPath, bestTarget, bestClosed
 
     result.target = target
     result.segments = #path
     result.loopClosed = loopClosed
+    result.candidates = candidateCount
     result._path = path
     result._shape = { x = shape.x, y = shape.y, z = shape.z, radius = shape.radius }
     local covFrac, covN = city.coverage(shape.points, path)
@@ -318,10 +339,24 @@ function core.buildStops(town, preferElectric, report, onGroups)
     local model = stopMod.stopModel()
     log("stop model: " .. tostring(model))
     local before = stopMod.snapshotStations(sp)
-    report(string.format("Construyendo %d paradas (%s)...", #sp, tostring(model)), false)
-    stopMod.buildStops(sp, model, player, context, report,
+    -- KEEP: edges already served keep their stops; only gaps get new ones.
+    -- Repeat clicks therefore converge instead of densifying forever.
+    local spots = stopMod.servedSpots(before)
+    local todo, kept = stopMod.applyKeep(sp, spots)
+    log(string.format("stops keep=%d build=%d", kept, #todo))
+    if #todo == 0 and kept > 0 then
+        local groups = stopMod.discoverGroups(sp, before, plan.town, true)
+        local summary = string.format(
+            "Nada nuevo: %d paradas ya existen; %d grupos en servicio.",
+            kept, #groups)
+        onGroups({ groups = groups, length = plan.length, townName = plan.town },
+            summary, #groups < 2)
+        return report(summary, #groups < 2)
+    end
+    report(string.format("Construyendo %d paradas (%d ya existen)...", #todo, kept), false)
+    stopMod.buildStops(todo, model, player, context, report,
         function(built, refused, lastError)
-            local groups = stopMod.discoverGroups(sp, before, plan.town)
+            local groups = stopMod.discoverGroups(sp, before, plan.town, true)
             log(string.format("stops: built=%d refused=%d groups=%d%s",
                 built, refused, #groups,
                 lastError ~= "" and (" lastError=" .. lastError) or ""))
@@ -333,8 +368,8 @@ function core.buildStops(town, preferElectric, report, onGroups)
                 return report(msg, true)
             end
             local summary = string.format(
-                "Paradas listas: %d construidas, %d rechazadas, %d grupos en corredor de %.2f km.",
-                built, refused, #groups, (plan.length or 0) / 1000)
+                "Paradas listas: %d nuevas, %d existentes, %d rechazadas, %d grupos en corredor de %.2f km.",
+                built, kept, refused, #groups, (plan.length or 0) / 1000)
             onGroups({ groups = groups, length = plan.length, townName = plan.town }, summary, false)
             report(summary, false)
         end)
@@ -353,15 +388,37 @@ function core.createLineAndTrams(info, preferElectric, town, report, cb)
     local player = api.engine.util.getPlayer()
     local outName, backName = lineMod.lineNames(info.townName or "Tranvia")
     local result = { out = nil, back = nil, boughtOut = 0, boughtBack = 0 }
-    report("Creando lineas de tranvia (ida + vuelta)...", false)
-    lineMod.createNamedLine(groups, outName, lineMod.LINE_COLOR_OUT, player, report,
-        function(outLine, outMsg, outErr)
-            if outErr or not outLine then
-                cb(result, outMsg, true)
-                return report(outMsg, true)
-            end
-            result.out = outLine
-            report(outMsg .. " Creando vuelta...", false)
+    -- Idempotency: reuse our lines by exact name instead of duplicating.
+    pcall(function()
+        result.out = lineMod.findPlayerLine(player, outName)
+        result.back = lineMod.findPlayerLine(player, backName)
+    end)
+    if result.out then
+        log("reusing existing line: " .. tostring(outName))
+        report("Ida ya existe; reutilizada.", false)
+    end
+    if result.back then
+        log("reusing existing line: " .. tostring(backName))
+        report("Vuelta ya existe; reutilizada.", false)
+    end
+    local createMissingBack -- forward (createMissing calls it)
+    local function createMissing(done)
+        if not result.out then
+            lineMod.createNamedLine(groups, outName, lineMod.LINE_COLOR_OUT, player, report,
+                function(outLine, outMsg, outErr)
+                    if outErr or not outLine then
+                        cb(result, outMsg, true)
+                        return report(outMsg, true)
+                    end
+                    result.out = outLine
+                    createMissingBack(done)
+                end)
+        else
+            createMissingBack(done)
+        end
+    end
+    createMissingBack = function(done)
+        if not result.back then
             lineMod.createReturnLine(groups, info.townName or "Tranvia", player, report,
                 function(backLine, backMsg, backErr)
                     if not backErr and backLine then result.back = backLine end
@@ -369,9 +426,20 @@ function core.createLineAndTrams(info, preferElectric, town, report, cb)
                         log("return line failed: " .. tostring(backMsg))
                         report("Vuelta no aceptada (" .. tostring(backMsg) .. "); sigo con la ida.", false)
                     end
-                    core._buySplitTrams(result, info, wantElectric, town, player, report, cb)
+                    done()
                 end)
-        end)
+        else
+            done()
+        end
+    end
+    if result.out and result.back then
+        core._buySplitTrams(result, info, wantElectric, town, player, report, cb)
+        return
+    end
+    report("Creando lineas de tranvia (ida + vuelta)...", false)
+    createMissing(function()
+        core._buySplitTrams(result, info, wantElectric, town, player, report, cb)
+    end)
 end
 
 -- Shared purchase path for new + retry flows.
@@ -392,16 +460,23 @@ function core._buySplitTrams(result, info, wantElectric, town, player, report, c
     local shape = city.townShape(town)
     local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
         or api.type.Vec3f.new(0, 0, 0)
+    -- Top-up: never buy blindly twice (repeat clicks converge).
+    local haveOut = result.out and lineMod.lineVehicleCount(result.out) or 0
+    local haveBack = result.back and lineMod.lineVehicleCount(result.back) or 0
+    nOut, nBack = math.max(0, nOut - haveOut), math.max(0, nBack - haveBack)
+    log(string.format("tram top-up: out have=%d need=%d back have=%d need=%d",
+        haveOut, nOut, haveBack, nBack))
     local function finish()
+        local total = haveOut + haveBack + result.boughtOut + result.boughtBack
         local m = string.format(
             "Done: lineas '%s' + vuelta con %d paradas, tranvias %d/%d (%s).",
-            tostring(info.townName), #groups,
-            result.boughtOut + result.boughtBack, count, tostring(trams[1].name))
+            tostring(info.townName), #groups, total, count, tostring(trams[1].name))
         log(string.format("manifest: town=%s corridorKm=%.2f stops=%d out=%s back=%s vehicles=%d/%d model=%s",
             tostring(info.townName), (info.length or 0) / 1000, #groups,
             tostring(result.out), tostring(result.back),
-            result.boughtOut + result.boughtBack, count, tostring(trams[1].name)))
-        local partial = (result.boughtOut + result.boughtBack) < count or not result.back
+            total, count, tostring(trams[1].name)))
+        result.boughtOut, result.boughtBack = haveOut + result.boughtOut, haveBack + result.boughtBack
+        local partial = total < count or not result.back
         cb(result, m, partial)
         report(m, partial)
     end
@@ -522,6 +597,34 @@ function core.checkAndRepairJunctions(town, preferElectric, report, cb)
             cb(insp2, m, insp2.nodesWithTram < insp2.nodes)
             report(m, insp2.nodesWithTram < insp2.nodes)
         end)
+end
+
+-- v0.12: engine verdict on our lines (LineProblem per line, incl. NO_PATH).
+function core.checkLines(info, report, cb)
+    report = report or function() end
+    local player = api.engine.util.getPlayer()
+    local entities = {}
+    if info.lines then
+        if info.lines.out then entities[#entities + 1] = info.lines.out end
+        if info.lines.back then entities[#entities + 1] = info.lines.back end
+    elseif info.line then
+        entities[#entities + 1] = info.line
+    end
+    if #entities == 0 then
+        local m = "No hay lineas guardadas."
+        cb({}, m, true)
+        return report(m, true)
+    end
+    local probs = lineMod.lineProblems(player, entities)
+    local parts = {}
+    for _, e in ipairs(entities) do
+        local t = lineMod.problemText(probs[e])
+        parts[#parts + 1] = tostring(e) .. "=" .. t
+        log("line health: entity=" .. tostring(e) .. " problem=" .. t)
+    end
+    local m = "Lineas: " .. table.concat(parts, " | ")
+    cb(probs, m, false)
+    report(m, false)
 end
 
 return core

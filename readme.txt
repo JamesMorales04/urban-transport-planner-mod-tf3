@@ -1,4 +1,4 @@
-URBAN TRAM PLANNER ALPHA 0.11
+URBAN TRAM PLANNER ALPHA 0.12
 ============================
 Build date: 2026-10-06
 

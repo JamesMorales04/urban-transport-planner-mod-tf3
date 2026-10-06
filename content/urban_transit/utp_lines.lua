@@ -67,6 +67,65 @@ function lines.lineNames(townName)
     return tostring(townName) .. " Tranvia", tostring(townName) .. " Tranvia Vuelta"
 end
 
+-- Idempotency: find our own lines by exact name (no duplicates on repeat
+-- clicks). Uses getLinesForPlayer + entity names, all in pcall.
+function lines.findPlayerLine(player, name)
+    local found = nil
+    pcall(function()
+        local all = api.engine.system.lineSystem.getLinesForPlayer(player)
+        for _, e in ipairs(all or {}) do
+            local okN, n = pcall(api.engine.util.getEntityName, e)
+            if okN and n == name then
+                found = e
+                break
+            end
+        end
+    end)
+    return found
+end
+
+-- Current vehicles on a line (for top-up buying instead of blind adds).
+function lines.lineVehicleCount(line)
+    local n = 0
+    pcall(function()
+        local vs = api.engine.system.transportVehicleSystem.getLineVehicles(line)
+        n = vs and #vs or 0
+    end)
+    return n
+end
+
+-- Engine verdict per line: LineProblem ints (NOTHING / NO_PATH / ...).
+-- Returns {entity = problemInt}. Unknown when the query fails.
+function lines.lineProblems(player, entities)
+    local out = {}
+    local ok, probs = pcall(
+        api.engine.system.lineSystem.getProblemLines, player)
+    if ok and probs then
+        local want = {}
+        for _, e in ipairs(entities or {}) do want[e] = true end
+        pcall(function()
+            for _, pair in ipairs(probs) do
+                local e, p = pair[1], pair[2]
+                if want[e] then out[e] = p end
+            end
+        end)
+    end
+    return out
+end
+
+function lines.problemText(p)
+    if p == nil then return "desconocido" end
+    local ok, e = pcall(function() return api.type.enum["LineProblem"] end)
+    if ok and e then
+        if p == e.NOTHING then return "OK" end
+        if p == e.NO_PATH then return "SIN RUTA" end
+        if p == e.ZERO_OR_ONE_STATION then return "0-1 paradas" end
+        if p == e.DOUBLE_STATIONS then return "paradas duplicadas" end
+        if p == e.INCOMPATIBLE_STATIONS then return "paradas incompatibles" end
+    end
+    return tostring(p)
+end
+
 -- Passenger-only stop cargo config (bus_loops passengerLoad).
 local function passengerLoad()
     local pax = api.res.cargoTypeRep.getPassengerCargoTypeId()

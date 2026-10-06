@@ -1,6 +1,6 @@
 {
   "name": "Urban Tram Planner Alpha",
-  "description": "Controlled v0.11: crash fix, loop-closed corridors with ida+vuelta service (feeders/cargo next).",
+  "description": "Controlled v0.12: no duplicate stops/lines, demand-scored routes, engine line-health check.",
   "tags": [
     "Script Mod",
     "Tram",
