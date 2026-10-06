@@ -18,5 +18,5 @@ cp -a "$SRC_DIR" "$DEST"
 # Defensive cleanup in case an older alpha was manually merged in the past.
 rm -f "$DEST/content/urban_transit/urban_tram_planner_alpha.script.lua"
 
-echo "Installed Urban Tram Planner Alpha 0.9 to: $DEST"
+echo "Installed Urban Tram Planner Alpha 0.10 to: $DEST"
 echo "Enable/reload it in Transport Fever 3 and test on a COPY of the save."

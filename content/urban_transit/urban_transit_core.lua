@@ -216,7 +216,39 @@ function core.build(town, preferElectric, report)
             plan.refused or 0, plan.firstError or "Revisa stdout.txt."
         ), true)
     end
-    executor.buildPath(plan._path, preferElectric, report)
+    -- v0.10: every corridor build ends with automatic junction verification
+    -- (and guarded repair), so tracks never stay silently disconnected.
+    local function wrapped(msg, isError)
+        if not isError and string.find(msg, "^Done") then
+            report(msg .. " Verificando cruces...", false)
+            local player = api.engine.util.getPlayer()
+            local context = executor.newContext(player)
+            local fresh = core.analyze(town, preferElectric)
+            if fresh.error or not fresh._path then
+                return report(msg .. " (no pude re-analizar cruces).", false)
+            end
+            local insp = jointMod.inspectCorridor(fresh._path)
+            for _, d in ipairs(insp.detail) do log("junction: " .. d) end
+            if insp.nodesWithTram >= insp.nodes then
+                return report(string.format(
+                    "%s Cruces OK: tranvia en %d/%d.",
+                    msg, insp.nodesWithTram, insp.nodes), false)
+            end
+            report(string.format(
+                "%s Cruces con tranvia %d/%d; reparando...",
+                msg, insp.nodesWithTram, insp.nodes), false)
+            jointMod.repairCorridor(fresh._path, player, context, report,
+                function(repaired, refused, deficient)
+                    local insp2 = jointMod.inspectCorridor(fresh._path)
+                    report(string.format(
+                        "%s Cruces: %d reparados, %d rechazados; tranvia en %d/%d.",
+                        msg, repaired, refused, insp2.nodesWithTram, insp2.nodes), false)
+                end)
+            return
+        end
+        report(msg, isError)
+    end
+    executor.buildPath(plan._path, preferElectric, wrapped)
 end
 
 function core.analyzeSafe(town, preferElectric)
@@ -307,43 +339,86 @@ function core.buildStops(town, preferElectric, report, onGroups)
 end
 
 -- v0.8: create "<town> Tranvia" + buy trams (best effort).
+-- v0.8/v0.10: create out + back lines ("Tranvia" / "Tranvia Vuelta")
+-- + buy trams split across both (best effort). cb(result, msg, isError)
+-- with result = {out=entity|nil, back=entity|nil, boughtOut, boughtBack,
+-- count, model}. Two lines mirror the proven bus_loops CW/CCW pattern so
+-- both directions are served even if the game does not auto-close loops.
 function core.createLineAndTrams(info, preferElectric, town, report, cb)
     report = report or function() end
     local wantElectric = preferElectric ~= false
     local groups = info.groups or {}
     local player = api.engine.util.getPlayer()
-    report("Creando linea de tranvia...", false)
-    lineMod.createLine(groups, info.townName or "Tranvia", player, report,
-        function(line, msg, isErr)
-            if isErr or not line then
-                cb(nil, msg, true)
-                return report(msg, true)
+    local outName, backName = lineMod.lineNames(info.townName or "Tranvia")
+    local result = { out = nil, back = nil, boughtOut = 0, boughtBack = 0 }
+    report("Creando lineas de tranvia (ida + vuelta)...", false)
+    lineMod.createNamedLine(groups, outName, lineMod.LINE_COLOR_OUT, player, report,
+        function(outLine, outMsg, outErr)
+            if outErr or not outLine then
+                cb(result, outMsg, true)
+                return report(outMsg, true)
             end
-            report(msg .. " Comprando tranvias...", false)
-            local count = lineMod.vehicleCount(info.length or 0, #groups)
-            local trams = {}
-            pcall(function() trams = lineMod.availableTrams(wantElectric) end)
-            if #trams == 0 then
-                local m = "Linea creada, pero no hay tranvias a la venta este ano. Compralos manualmente."
-                log(m)
-                cb(line, m, true)
-                return report(m, true)
-            end
-            local shape = city.townShape(town)
-            local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
-                or api.type.Vec3f.new(0, 0, 0)
-            lineMod.buyTrams(line, trams[1].id, count, player, pos, wantElectric, report,
-                function(bought)
-                    local m = string.format(
-                        "Done: linea '%s Tranvia' con %d paradas, %d/%d tranvias (%s).",
-                        tostring(info.townName), #groups, bought, count, tostring(trams[1].name))
-                    log(string.format("manifest: town=%s corridorKm=%.2f stops=%d line=%s vehicles=%d/%d model=%s",
-                        tostring(info.townName), (info.length or 0) / 1000, #groups,
-                        tostring(line), bought, count, tostring(trams[1].name)))
-                    cb(line, m, bought < count)
-                    report(m, bought < count)
+            result.out = outLine
+            report(outMsg .. " Creando vuelta...", false)
+            lineMod.createReturnLine(groups, info.townName or "Tranvia", player, report,
+                function(backLine, backMsg, backErr)
+                    if not backErr and backLine then result.back = backLine end
+                    if backErr then
+                        log("return line failed: " .. tostring(backMsg))
+                        report("Vuelta no aceptada (" .. tostring(backMsg) .. "); sigo con la ida.", false)
+                    end
+                    core._buySplitTrams(result, info, wantElectric, town, player, report, cb)
                 end)
         end)
+end
+
+-- Shared purchase path for new + retry flows.
+function core._buySplitTrams(result, info, wantElectric, town, player, report, cb)
+    local groups = info.groups or {}
+    local count = lineMod.vehicleCount(info.length or 0, #groups)
+    local nOut, nBack = lineMod.splitCount(count)
+    local trams = {}
+    pcall(function() trams = lineMod.availableTrams(wantElectric) end)
+    result.count = count
+    if #trams == 0 then
+        local m = "Lineas creadas, pero no hay tranvias a la venta este ano. Compralos manualmente."
+        log(m)
+        cb(result, m, true)
+        return report(m, true)
+    end
+    result.model = trams[1].name
+    local shape = city.townShape(town)
+    local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
+        or api.type.Vec3f.new(0, 0, 0)
+    local function buyBack()
+        if result.back and nBack > 0 then
+            report(string.format("Comprando %d tranvia(s) para la vuelta...", nBack), false)
+            lineMod.buyTrams(result.back, trams[1].id, nBack, player, pos, wantElectric, report,
+                function(bought) result.boughtBack = bought finish() end)
+        else
+            finish()
+        end
+    end
+    function finish()
+        local m = string.format(
+            "Done: lineas '%s' + vuelta con %d paradas, tranvias %d/%d (%s).",
+            tostring(info.townName), #groups,
+            result.boughtOut + result.boughtBack, count, tostring(trams[1].name))
+        log(string.format("manifest: town=%s corridorKm=%.2f stops=%d out=%s back=%s vehicles=%d/%d model=%s",
+            tostring(info.townName), (info.length or 0) / 1000, #groups,
+            tostring(result.out), tostring(result.back),
+            result.boughtOut + result.boughtBack, count, tostring(trams[1].name)))
+        local partial = (result.boughtOut + result.boughtBack) < count or not result.back
+        cb(result, m, partial)
+        report(m, partial)
+    end
+    if result.out and nOut > 0 then
+        report(string.format("Comprando %d tranvia(s) para la ida...", nOut), false)
+        lineMod.buyTrams(result.out, trams[1].id, nOut, player, pos, wantElectric, report,
+            function(bought) result.boughtOut = bought buyBack() end)
+    else
+        buyBack()
+    end
 end
 
 -- v0.9: retry tram purchase on an existing line (depot connected later).
@@ -351,26 +426,62 @@ function core.buyTramsForLine(info, town, preferElectric, report, cb)
     report = report or function() end
     local wantElectric = preferElectric ~= false
     local player = api.engine.util.getPlayer()
-    local trams = {}
-    pcall(function() trams = lineMod.availableTrams(wantElectric) end)
-    if #trams == 0 then
-        local m = "No hay tranvias a la venta este ano. Compralos manualmente."
-        cb(0, m, true)
+    -- info.lines = {out=, back=} when created by v0.10; legacy info.line = one.
+    local result = { out = info.lines and info.lines.out or info.line,
+        back = info.lines and info.lines.back or nil, boughtOut = 0, boughtBack = 0 }
+    if not result.out and not result.back then
+        local m = "No hay linea guardada. Crea las lineas primero."
+        cb(result, m, true)
         return report(m, true)
     end
-    local count = lineMod.vehicleCount(info.length or 0, #(info.groups or {}))
-    local shape = city.townShape(town)
-    local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
-        or api.type.Vec3f.new(0, 0, 0)
-    report(string.format("Comprando %d tranvia(s) (%s)...", count, tostring(trams[1].name)), false)
-    lineMod.buyTrams(info.line, trams[1].id, count, player, pos, wantElectric, report,
-        function(bought)
-            local m = string.format("Tranvias: %d/%d (%s).", bought, count, tostring(trams[1].name))
-            log(string.format("manifest-buy: line=%s vehicles=%d/%d model=%s",
-                tostring(info.line), bought, count, tostring(trams[1].name)))
-            cb(bought, m, bought < count)
-            report(m, bought < count)
+    report("Reintentando compra de tranvias...", false)
+    core._buySplitTrams(result, info, wantElectric, town, player, report,
+        function(res, m, partial)
+            cb(res.boughtOut + res.boughtBack, m, partial)
         end)
+end
+
+-- v0.10: recover station groups from the live world without rebuilding
+-- stops (e.g. panel reopened, or stops built by an older version).
+-- Returns {groups, length, townName} or {error}.
+function core.findCorridorGroups(town, preferElectric)
+    local plan = core.analyze(town, preferElectric)
+    if plan.error then return { error = plan.error } end
+    local groups, seen = {}, {}
+    for _, e in ipairs(plan._path or {}) do
+        local ok, near = pcall(api.engine.util.octree.findEntitiesInCircle,
+            api.type.Vec2f.new(e.x, e.y), stopMod.STATION_SCAN_RADIUS,
+            api.type.ComponentType.STATION)
+        for _, s in ipairs(ok and near or {}) do
+            local isEdgeObject = false
+            pcall(function()
+                isEdgeObject = api.engine.getComponent(
+                    s, api.type.ComponentType.EDGE_OBJECT) ~= nil
+            end)
+            if isEdgeObject then
+                local okG, g = pcall(
+                    api.engine.system.stationGroupSystem.getStationGroup, s)
+                if okG and g and g >= 0 and not seen[g] then
+                    seen[g] = true
+                    groups[#groups + 1] = g
+                end
+            end
+        end
+    end
+    if #groups < stopMod.MIN_STOPS_LINE then
+        return { error = string.format(
+            "Solo %d grupos junto al corredor (minimo 2). Construye paradas primero.",
+            #groups) }
+    end
+    return { groups = groups, length = plan.length, townName = plan.town }
+end
+
+function core.findCorridorGroupsSafe(town, preferElectric)
+    local ok, result = pcall(core.findCorridorGroups, town, preferElectric)
+    if ok then return result end
+    local msg = logger.errorText(result)
+    log("find-groups exception: " .. msg)
+    return { error = "Excepcion buscando paradas: " .. msg }
 end
 
 -- v0.9: read-only junction diagnosis + guarded withTram repair.

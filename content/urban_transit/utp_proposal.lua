@@ -136,6 +136,11 @@ function executor.refreshEdge(planRec)
     local fresh = {}
     for k, v in pairs(planRec) do fresh[k] = v end
     fresh.liveTemplate = liveTemplate
+    local liveHasObjects = false
+    pcall(function() liveHasObjects = edge.objects and #edge.objects > 0 or false end)
+    if liveHasObjects ~= (planRec.hasObjects == true) then
+        fresh.liveObjectsChanged = true
+    end
     if liveTemplate ~= planRec.currentTemplate then
         -- Another build (or the player) already changed it: re-check tram state.
         local hasTram, hasElectric = catalog.edgeStreetTramKinds(edge)
@@ -196,6 +201,10 @@ function executor.buildPath(path, preferElectric, report)
         end
 
         -- Fresh creation check immediately before sending (world may differ).
+        if fresh.liveObjectsChanged then
+            logRaw(string.format(
+                "segment %d objects changed since analysis; engine decides", i))
+        end
         local proposal, proposalError, changedLanes =
             executor.makeTramProposal(e, preferElectric)
         if not proposal then
@@ -222,8 +231,9 @@ function executor.buildPath(path, preferElectric, report)
                         end)
                         logRaw(string.format("segment %d failed:%s", i, msg))
                         return report(
-                            "El juego rechazo el segmento " .. i .. "." .. msg ..
-                            " La ruta puede haber quedado parcialmente construida; recarga la copia de prueba si hace falta.",
+                            "El juego rechazo el segmento " .. i .. " (" ..
+                            ((msg and msg ~= "") and ("motivo motor:" .. msg) or "sin motivo") ..
+                            "). Si es Colision tras anadir paradas/objetos, usa DIAGNOSTICAR + REPARAR CRUCES en vez de reconstruir; si no, recarga la copia de prueba.",
                             true)
                     end
                     changed = changed + 1

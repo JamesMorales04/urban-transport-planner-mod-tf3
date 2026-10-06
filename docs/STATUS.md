@@ -4,7 +4,15 @@ Maintained per iteration. Sources of truth (in order): current code, real TF3
 logs, official/community TF3 modding docs, vanilla game scripts, then reasoned
 inference. No imagined APIs.
 
-## Implemented (v0.9, verified)
+## Implemented (v0.10, verified)
+
+- v0.9 playtest (Alteren/Myklebustad): collision on rebuild (segment 2),
+  disconnected crossings per player, single-line return doubt, lost line
+  step, feeders/cargo requested.
+- v0.10 lines: `Tranvia` + `Tranvia Vuelta` (reversed, own colors),
+  trams split; auto junction verify+repair after every corridor build.
+- `USAR PARADAS EXISTENTES`: group recovery from live world, no rebuild.
+- Collision-aware messaging + object-change logging; engine decides.
 
 - v0.8 playtest (Alteren): corridor + 4 stops + `Alteren Tranvia` line with
   4 groups created; 0/1 trams (no depot connected). Issues filed by player:
@@ -74,15 +82,19 @@ inference. No imagined APIs.
 
 ## Partially implemented
 
-- Full service: line exists but no tram has run it (depot unconnected);
-  junction repair implemented, awaiting in-game before/after numbers.
+- Full service: ida+vuelta implemented, no tram has run either (depot
+  unconnected everywhere so far); junction auto-repair awaiting numbers.
 - Electric preference with non-electric fallback flag (`electricFallbacks`).
 
 ## Pending (in dependency order)
 
-1. v0.9 playtest: junction numbers (expect nodesWithTram == nodes after
-   repair), 2 spaced stops on 0.35 km, line + tram in service.
-2. Bus feeders (need proven trunk + coverage gaps from v0.9 metrics).
+1. v0.10 playtest: junction numbers in Done message, ida+vuelta created,
+   depot connected, trams on both, passengers moving.
+2. Bus feeders: coverage-gap routes to tram interchanges (bus_loops
+   recipe proven; needs trunk numbers first). Design:
+   k-means-style gap detection from `shape.points` outside stop
+   catchments -> interchange = nearest tram group -> bus loop via the
+   same stop/line/vehicle stack.
 3. Ring / Hybrid / Auto topology reusing the stop+line stack.
 4. Cargo / CITY SUPPLY (demand + supply-chain APIs still to research).
 5. Persistent manifest + reconciliation + Force rebuild.
@@ -151,10 +163,8 @@ inference. No imagined APIs.
 
 ## Next priorities
 
-1. In-game v0.9 on a save copy: corridor -> DIAGNOSTICAR + REPARAR CRUCES
-   (expect `tranvia en N/N cruces`) -> paradas espaciadas -> linea ->
-   conecta un deposito de tranvias -> COMPRAR TRANVIAS; confirm tram
-   moving with passengers.
-2. If junctions stay at 0 after repair: send `junction:` log lines; the
-   fallback is studying StreetEdgeNodeModifier override semantics.
-3. Then: feeders, Ring/Hybrid/Auto, cargo, persistence (in that order).
+1. In-game v0.10 on a save copy: Build (read junction numbers in Done),
+   USAR PARADAS EXISTENTES where stops exist, IDA + VUELTA, connect a
+   tram depot, COMPRAR TRANVIAS; confirm trams both directions.
+2. If junctions stay at 0 after repair: send `junction:` log lines.
+3. Then: feeders (design above), Ring/Hybrid/Auto, cargo, persistence.

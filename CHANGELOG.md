@@ -1,6 +1,22 @@
 # CHANGELOG
 
-## 0.9.0 — spaced stops, coverage, junction repair, tram repurchase
+## 0.10.0 — ida+vuelta, auto junction repair, reusable stops
+
+Player report (Alteren/Myklebustad v0.9): tracks disconnected at
+crossings, single line questioned for the return direction, stops built
+but line step lost (panel state), rebuild collisions, feeders/cargo asked.
+
+- Two directional lines (`Tranvia` + `Tranvia Vuelta`, reversed order,
+  own colors), mirroring proven bus_loops CW/CCW; trams split across both.
+- Junction verification + repair is now AUTOMATIC at the end of every
+  corridor build (manual button kept); Done message carries the numbers.
+- `USAR PARADAS EXISTENTES`: recover station groups from the live world
+  without rebuilding (panel reopened, older-version stops).
+- Collision guidance: refusal message distinguishes post-object cases
+  (use junction repair, not rebuild); object changes since analysis are
+  logged; build skips nothing, engine still decides.
+- Feeders/cargo NOT in this version (need proven trunk first); designs
+  recorded in STATUS.
 
 Playtest Alteren (v0.8): stops built and line created, but 4 stops on
 0.35 km (too close), tram tracks visually disconnected at crossings, no

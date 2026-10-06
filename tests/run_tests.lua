@@ -290,6 +290,14 @@ do
     check("vehicleCount 1200m/4 groups = 3", lineMod.vehicleCount(1200, 4) == 3)
     check("vehicleCount capped by groups", lineMod.vehicleCount(5000, 2) == 2)
     check("vehicleCount minimum 1", lineMod.vehicleCount(0, 0) == 1)
+    local a, b = lineMod.splitCount(1)
+    check("splitCount 1 -> 1+0", a == 1 and b == 0)
+    local c, d = lineMod.splitCount(4)
+    check("splitCount 4 -> 2+2", c == 2 and d == 2)
+    local e, f = lineMod.splitCount(3)
+    check("splitCount 3 -> 2+1", e == 2 and f == 1)
+    local n1, n2 = lineMod.lineNames("Alteren")
+    check("lineNames ida+vuelta", n1 == "Alteren Tranvia" and n2 == "Alteren Tranvia Vuelta")
 end
 
 -- 13: tram discovery with stubbed modelRep.

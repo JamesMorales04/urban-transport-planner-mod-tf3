@@ -1,6 +1,6 @@
 {
   "name": "Urban Tram Planner Alpha",
-  "description": "Controlled v0.9: spaced stops, coverage, junction tram repair, tram repurchase (feeders/cargo scheduled).",
+  "description": "Controlled v0.10: ida+vuelta tram lines, automatic junction repair, reusable stops (feeders/cargo next).",
   "tags": [
     "Script Mod",
     "Tram",

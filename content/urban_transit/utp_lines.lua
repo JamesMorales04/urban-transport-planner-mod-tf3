@@ -27,7 +27,8 @@ end)
 
 lines.METERS_PER_TRAM = 500
 lines.DEPOT_RADIUS = 4000 -- bus_loops pre-check radius (m)
-lines.LINE_COLOR = { 0.2, 0.7, 0.3 }
+lines.LINE_COLOR_OUT = { 0.2, 0.7, 0.3 }
+lines.LINE_COLOR_BACK = { 0.2, 0.55, 0.55 }
 
 local function logRaw(msg)
     if logger and logger.raw then logger.raw(msg)
@@ -52,6 +53,18 @@ function lines.vehicleCount(corridorLength, groupCount)
     if n < 1 then n = 1 end
     if groupCount and groupCount >= 1 and n > groupCount then n = groupCount end
     return n
+end
+
+-- Split trams across the two directions (out + back). A single tram still
+-- runs: it serves the outbound line while the return line waits for depot.
+function lines.splitCount(n)
+    n = math.max(1, math.floor(n or 1))
+    local first = math.ceil(n / 2)
+    return first, n - first
+end
+
+function lines.lineNames(townName)
+    return tostring(townName) .. " Tranvia", tostring(townName) .. " Tranvia Vuelta"
 end
 
 -- Passenger-only stop cargo config (bus_loops passengerLoad).
@@ -216,7 +229,18 @@ end
 -- Create "<town> Tranvia" through groups (corridor order). Calls back
 -- with (lineEntity or nil, message, isError).
 function lines.createLine(groups, townName, player, report, cb)
-    local c = lines.LINE_COLOR
+    lines.createNamedLine(groups, townName, lines.LINE_COLOR_OUT, player, report, cb)
+end
+
+-- Directional line ("Vuelta" uses the reversed group order + own color).
+function lines.createReturnLine(groups, townName, player, report, cb)
+    local rev = {}
+    for i = #groups, 1, -1 do rev[#rev + 1] = groups[i] end
+    local _, backName = lines.lineNames(townName)
+    lines.createNamedLine(rev, backName, lines.LINE_COLOR_BACK, player, report, cb)
+end
+
+function lines.createNamedLine(groups, lineName, color, player, report, cb)
     local compOk, comp = pcall(lines.makeLine, groups)
     if not compOk or not comp then
         cb(nil, "No pude armar la linea: " .. errorText(comp), true)
@@ -224,8 +248,8 @@ function lines.createLine(groups, townName, player, report, cb)
     end
     local okSend, err = pcall(function()
         api.cmd.sendCommand(
-            api.cmd.makeLineCreateCmd(tostring(townName) .. " Tranvia",
-                api.type.Vec3f.new(c[1], c[2], c[3]), player, comp),
+            api.cmd.makeLineCreateCmd(tostring(lineName),
+                api.type.Vec3f.new(color[1], color[2], color[3]), player, comp),
             function(data, ok, results)
                 local line = nil
                 pcall(function() line = results[1][1] end)
@@ -233,11 +257,11 @@ function lines.createLine(groups, townName, player, report, cb)
                     pcall(function() line = data.resultEntity end)
                 end
                 if ok and line and line >= 0 then
-                    logRaw("line created: entity=" .. tostring(line))
+                    logRaw("line created: " .. tostring(lineName) .. " entity=" .. tostring(line))
                     cb(line, "Linea creada.", false)
                 else
-                    logRaw("line create failed")
-                    cb(nil, "El juego no acepto la linea de tranvia.", true)
+                    logRaw("line create failed: " .. tostring(lineName))
+                    cb(nil, "El juego no acepto la linea " .. tostring(lineName) .. ".", true)
                 end
             end)
     end)
