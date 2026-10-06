@@ -1,6 +1,22 @@
 # CHANGELOG
 
-## 0.10.0 — ida+vuelta, auto junction repair, reusable stops
+## 0.11.0 — crash fix + loop-closed corridors
+
+Two findings from the v0.10 playtest (Alteren/Myklebustad):
+
+1. Crash on ida+vuelta+trams: `Creating globals by assignment is not
+   allowed (key = finish)` at `urban_transit_core.lua _buySplitTrams`
+   (called from `utp_lines.lua` send callback). A nested `function
+   finish()` missed `local`. Fixed by declaration order; a static test
+   now scans every file for bare global functions (only `data()` entry
+   points allowed).
+2. Open corridor ends (red) vs closed loop (green): junctions measured
+   5/5 WITH tram, so the "disconnection" is topological, not missing
+   flags. The planner now appends a disjoint return leg
+   (`city.loopCorridor`, interior-edge exclusion, end-agnostic joint
+   ranking) and reports `circuito: cerrado/abierto`. Ida/Vuelta serve
+   the loop in both directions (bus_loops CW/CCW semantics). Big custom
+   rings (player purple sketch) stay Ring-mode future work.
 
 Player report (Alteren/Myklebustad v0.9): tracks disconnected at
 crossings, single line questioned for the return direction, stops built

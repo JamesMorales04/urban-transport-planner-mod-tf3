@@ -142,7 +142,7 @@ function core.analyze(town, preferElectric)
         return result
     end
 
-    local path = city.corridor(graph, centerEdge, outerEdge)
+    local path, loopClosed = city.loopCorridor(graph, centerEdge, outerEdge)
     if not path or #path < 2 then
         result.error = "No encontre un camino continuo centro-periferia usando solo calles convertibles a tranvia."
         return result
@@ -150,6 +150,7 @@ function core.analyze(town, preferElectric)
 
     result.target = target
     result.segments = #path
+    result.loopClosed = loopClosed
     result._path = path
     result._shape = { x = shape.x, y = shape.y, z = shape.z, radius = shape.radius }
     local covFrac, covN = city.coverage(shape.points, path)
@@ -193,11 +194,12 @@ function core.analyze(town, preferElectric)
     result.buildable = result.refused == 0 and result.segments > 0
 
     log(string.format(
-        "analysis %s: buildings=%d radius=%.0fm usableEdges=%d incompatible=%d bridges/tunnels=%d nonStreet=%d currentTpl=%d streetTram=%d corridor=%d/%.0fm refused=%d lanesToAdd=%d coverage=%d%%(%d)",
+        "analysis %s: buildings=%d radius=%.0fm usableEdges=%d incompatible=%d bridges/tunnels=%d nonStreet=%d currentTpl=%d streetTram=%d corridor=%d/%.0fm loop=%s refused=%d lanesToAdd=%d coverage=%d%%(%d)",
         result.town, result.buildings, result.radius, result.streetEdges, result.incompatibleEdges,
         result.excludedStructure, result.excludedNonStreet,
         result.currentTemplates, result.trackTemplates, result.segments, result.length,
-        result.refused, result.tramLanesToAdd, result.coveragePct or 0, result.coverageN or 0
+        tostring(result.loopClosed), result.refused, result.tramLanesToAdd,
+        result.coveragePct or 0, result.coverageN or 0
     ))
     for mapping, n in pairs(result.sourceTargetCounts) do
         log(string.format("  mapping x%d: %s", n, mapping))
@@ -390,16 +392,7 @@ function core._buySplitTrams(result, info, wantElectric, town, player, report, c
     local shape = city.townShape(town)
     local pos = shape and api.type.Vec3f.new(shape.x, shape.y, shape.z)
         or api.type.Vec3f.new(0, 0, 0)
-    local function buyBack()
-        if result.back and nBack > 0 then
-            report(string.format("Comprando %d tranvia(s) para la vuelta...", nBack), false)
-            lineMod.buyTrams(result.back, trams[1].id, nBack, player, pos, wantElectric, report,
-                function(bought) result.boughtBack = bought finish() end)
-        else
-            finish()
-        end
-    end
-    function finish()
+    local function finish()
         local m = string.format(
             "Done: lineas '%s' + vuelta con %d paradas, tranvias %d/%d (%s).",
             tostring(info.townName), #groups,
@@ -411,6 +404,15 @@ function core._buySplitTrams(result, info, wantElectric, town, player, report, c
         local partial = (result.boughtOut + result.boughtBack) < count or not result.back
         cb(result, m, partial)
         report(m, partial)
+    end
+    local function buyBack()
+        if result.back and nBack > 0 then
+            report(string.format("Comprando %d tranvia(s) para la vuelta...", nBack), false)
+            lineMod.buyTrams(result.back, trams[1].id, nBack, player, pos, wantElectric, report,
+                function(bought) result.boughtBack = bought finish() end)
+        else
+            finish()
+        end
     end
     if result.out and nOut > 0 then
         report(string.format("Comprando %d tranvia(s) para la ida...", nOut), false)

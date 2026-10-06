@@ -385,4 +385,77 @@ function city.corridor(graph, centerEdge, outerEdge)
     return out
 end
 
+-- v0.11 green loop: close the radial into a circuit. The return leg avoids
+-- the outbound interior edges so tracks do not dead-end (red) but run a
+-- closed loop (green). Ida/Vuelta lines then serve the loop in both
+-- directions, exactly like bus_loops CW/CCW. Falls back to the open
+-- corridor when no disjoint return exists. Returns loop, closed:boolean.
+function city.loopCorridor(graph, centerEdge, outerEdge)
+    local out = city.corridor(graph, centerEdge, outerEdge)
+    if not out or #out < 2 then return out, false end
+    local outSet = {}
+    for _, e in ipairs(out) do outSet[e.entity] = true end
+    local interior = {}
+    for _, e in ipairs(out) do
+        if e.entity ~= centerEdge.entity and e.entity ~= outerEdge.entity then
+            interior[e.entity] = true
+        end
+    end
+    -- Traversal ends of the outbound leg (orientation-agnostic: either
+    -- chain end works as loop joint).
+    local function follow(list, startNode)
+        local n = startNode
+        local used = {}
+        while true do
+            local advanced = false
+            for _, e in ipairs(list) do
+                if not used[e.entity] then
+                    if e.node0 == n then
+                        n, used[e.entity], advanced = e.node1, true, true
+                    elseif e.node1 == n then
+                        n, used[e.entity], advanced = e.node0, true, true
+                    end
+                    if advanced then break end
+                end
+            end
+            if not advanced then return n end
+        end
+    end
+    local endA = follow(out, out[1].node0)
+    local endB = follow(out, out[1].node1)
+    do
+        local centerNodes = { centerEdge.node0, centerEdge.node1 }
+        local outerNodes = { outerEdge.node0, outerEdge.node1 }
+        local best, bestRank, bestCost = nil, 99, math.huge
+        for _, s in ipairs(outerNodes) do
+            for _, g in ipairs(centerNodes) do
+                local path, cost = city.dijkstra(graph, s, g, interior)
+                if path then
+                    local closed = (s == endA and g == endB) or (s == endB and g == endA)
+                    local touches = (s == endA or s == endB or g == endA or g == endB)
+                    local rank = closed and 0 or (touches and 1 or 2)
+                    if rank < bestRank or (rank == bestRank and cost < bestCost) then
+                        best, bestRank, bestCost = path, rank, cost
+                    end
+                end
+            end
+        end
+        if not best or #best == 0 then return out, false end
+        local loop, seen = {}, {}
+        for _, e in ipairs(out) do
+            loop[#loop + 1] = e
+            seen[e.entity] = true
+        end
+        for _, e in ipairs(best) do
+            if not seen[e.entity] then
+                loop[#loop + 1] = e
+                seen[e.entity] = true
+            end
+        end
+        -- Any outerNodes->centerNodes return attaches both sides to the
+        -- outbound leg, so the circuit is closed whenever it exists.
+        return loop, true
+    end
+end
+
 return city

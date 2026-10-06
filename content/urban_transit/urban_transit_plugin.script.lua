@@ -100,9 +100,10 @@ local function build()
                     pv.currentTemplates or 0, pv.trackTemplates or 0, pv.templateRepoTotal or 0, pv.templateRepoAvailable or 0
                 ))
                 children[#children + 1] = text(string.format(
-                    "Corredor: %d segmentos | %.2f km | con via: %d | electricos: %d | cobertura: %d%% (%d edificios <160m)",
+                    "Corredor: %d segmentos | %.2f km | con via: %d | electricos: %d | cobertura: %d%% (%d edificios <160m) | circuito: %s",
                     pv.segments or 0, (pv.length or 0) / 1000, pv.alreadyTram or 0, pv.alreadyElectric or 0,
-                    pv.coveragePct or 0, pv.coverageN or 0
+                    pv.coveragePct or 0, pv.coverageN or 0,
+                    pv.loopClosed and "cerrado" or "abierto (sin retorno disjunto)"
                 ))
                 children[#children + 1] = text(string.format(
                     "Carriles de via a agregar: %d | fallback no electrico: %d",

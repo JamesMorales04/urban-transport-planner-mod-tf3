@@ -4,7 +4,14 @@ Maintained per iteration. Sources of truth (in order): current code, real TF3
 logs, official/community TF3 modding docs, vanilla game scripts, then reasoned
 inference. No imagined APIs.
 
-## Implemented (v0.10, verified)
+## Implemented (v0.11, verified)
+
+- Crash root cause (v0.10 ida+vuelta+trams): implicit global `finish`
+  (TF3 forbids global creation; hard error). Fixed + static regression
+  test over all Lua files.
+- Loop closure (`city.loopCorridor`): disjoint return leg, closed flag in
+  analysis/logs/UI; player green sketch is now the default outcome when
+  the street graph allows it.
 
 - v0.9 playtest (Alteren/Myklebustad): collision on rebuild (segment 2),
   disconnected crossings per player, single-line return doubt, lost line
@@ -82,8 +89,8 @@ inference. No imagined APIs.
 
 ## Partially implemented
 
-- Full service: ida+vuelta implemented, no tram has run either (depot
-  unconnected everywhere so far); junction auto-repair awaiting numbers.
+- Full service: ida+vuelta implemented, crash fixed, loop closure
+  implemented; no tram has run yet (depot unconnected everywhere so far).
 - Electric preference with non-electric fallback flag (`electricFallbacks`).
 
 ## Pending (in dependency order)
@@ -163,8 +170,9 @@ inference. No imagined APIs.
 
 ## Next priorities
 
-1. In-game v0.10 on a save copy: Build (read junction numbers in Done),
-   USAR PARADAS EXISTENTES where stops exist, IDA + VUELTA, connect a
-   tram depot, COMPRAR TRANVIAS; confirm trams both directions.
-2. If junctions stay at 0 after repair: send `junction:` log lines.
-3. Then: feeders (design above), Ring/Hybrid/Auto, cargo, persistence.
+1. In-game v0.11 on a save copy: Build (expect `circuito: cerrado` +
+   junction numbers in Done), spaced stops, IDA + VUELTA, connect a tram
+   depot, COMPRAR TRANVIAS; confirm trams both directions with passengers.
+2. If the loop stays open where you sketched purple: send the analysis
+   log (usableEdges/incompatible decide it); Ring mode comes from this.
+3. Then: feeders (design in Pending), cargo, persistence.

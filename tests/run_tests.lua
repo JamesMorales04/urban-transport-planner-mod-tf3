@@ -259,6 +259,42 @@ do
     check("coverage empty-safe", f0 == 0)
 end
 
+-- 14: no implicit globals via bare function declarations (TF3 crashes:
+-- "Creating globals by assignment is not allowed"). Only `function data()`
+-- entry points are allowed; everything else must be local or table-bound.
+do
+    local allowed = { ["urban_transit_plugin.script.lua"] = { "data" },
+        ["urban_transit_plugin.res.lua"] = { "data" } }
+    local bad = {}
+    local files = { "utp_logger.lua", "utp_street_catalog.lua", "utp_city.lua",
+        "utp_proposal.lua", "utp_stops.lua", "utp_lines.lua", "utp_junction.lua",
+        "urban_transit_core.lua", "urban_transit_plugin.script.lua",
+        "urban_transit_plugin.res.lua" }
+    for _, f in ipairs(files) do
+        local fh = io.open(CONTENT .. "/" .. f, "r")
+        if fh then
+            local n = 0
+            for line in fh:lines() do
+                n = n + 1
+                local name = line:match("^%s*function%s+([A-Za-z_][A-Za-z0-9_]*)%s*%(")
+                if name then
+                    local okName = false
+                    for _, a in ipairs((allowed[f] or {})) do
+                        if a == name then okName = true end
+                    end
+                    if not okName then
+                        bad[#bad + 1] = f .. ":" .. n .. ":" .. name
+                    end
+                end
+            end
+            fh:close()
+        else
+            bad[#bad + 1] = f .. ":unreadable"
+        end
+    end
+    check("no bare global functions", #bad == 0, table.concat(bad, " "))
+end
+
 -- 10d: corridor joints pair consecutive edges per shared node (pure).
 do
     local jp = {
@@ -276,6 +312,38 @@ do
     end
     check("joints carry shared node", okPairs and joints[1].node == 2)
     check("joints nil-safe", #jointMod.corridorJoints(nil) == 0)
+end
+
+-- 10e: loop closure on a ring, open fallback on a line (pure).
+do
+    local function E(ent, n0, n1)
+        return { entity = ent, node0 = n0, node1 = n1, length = 100,
+            satisfies = true, templateScore = 0, hasObjects = false }
+    end
+    local e12, e23, e34, e41 = E(11, 1, 2), E(22, 2, 3), E(33, 3, 4), E(44, 4, 1)
+    local ring = { adj = {
+        [1] = { e12, e41 }, [2] = { e12, e23 },
+        [3] = { e23, e34 }, [4] = { e34, e41 } } }
+    local loop, closed = city.loopCorridor(ring, e12, e34)
+    local uniq = {}
+    for _, e in ipairs(loop or {}) do uniq[e.entity] = true end
+    local nuniq = 0
+    for _ in pairs(uniq) do nuniq = nuniq + 1 end
+    local function shares(a, b)
+        return a.node0 == b.node0 or a.node0 == b.node1
+            or a.node1 == b.node0 or a.node1 == b.node1
+    end
+    check("loop closes the ring", closed == true and nuniq == 4,
+        "closed=" .. tostring(closed) .. " uniq=" .. nuniq)
+    check("loop ends join", loop and shares(loop[1], loop[#loop]) or false)
+    local joints = jointMod.corridorJoints(loop)
+    check("closed loop joints", #joints == 4, "#=" .. #joints)
+    local l1, l2, l3 = E(51, 1, 2), E(52, 2, 3), E(53, 3, 4)
+    local line = { adj = { [1] = { l1 }, [2] = { l1, l2 },
+        [3] = { l2, l3 }, [4] = { l3 } } }
+    local open, openClosed = city.loopCorridor(line, l1, l3)
+    check("no return -> open fallback", openClosed == false and open and #open == 3,
+        "closed=" .. tostring(openClosed))
 end
 
 -- 11: stop model era (stub year 2000 -> new).
