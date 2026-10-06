@@ -1,29 +1,33 @@
-URBAN TRAM PLANNER ALPHA 0.6
+URBAN TRAM PLANNER ALPHA 0.7
 ============================
 Build date: 2026-10-06
 
-ROOT CAUSE FIXED FROM 0.5
--------------------------
-0.5 checked rail modes TRAM_TRACK/ELECTRIC_TRAM_TRACK when looking for
-tram streets. Street templates use TRAM/ELECTRIC_TRAM (verified in
-street.zip, e.g. town_new_large_tram_electrified: 2 of 8 lanes with
-CAR,BUS,TRUCK,TRAM,ELECTRIC_TRAM). TRAM_TRACK belongs to rail TRACK
-templates (track.zip). The 0.5 inventory therefore held only the 6 rail
-tracks and no street was ever convertible; the logs proved it (every
-candidate was ::/infrastructure/track/...).
+ROOT CAUSE FIXED FROM 0.6 (playtest Alteren)
+--------------------------------------------
+0.6 analysis worked (15 street tram templates, correct
+town_new_small -> town_new_small_tram_electrified x3 mapping), but every
+segment was refused with:
+  "proposal validation failed: bad argument #2 to '?'
+   (SimpleProposal expected, got Proposal)"
+The engine binding for makeProposalData only accepts SimpleProposal, while
+replaceSegment yields a full Proposal. The tealdef signature disagrees, and
+no shipped content calls makeProposalData directly (verified by exhaustive
+grep: scripts.zip, game_mechanics.zip, gui.zip). The vanilla pre-validation
+pattern is builtin.ProposalViewer (bridge_and_tunnel.tl), an engine-backed
+component with no safe equivalent for a town-window card.
 
-0.6 detects TRAM/ELECTRIC_TRAM, requires roadType STREET, preserves car
-access (a car street is never mapped to a car-free tramway), excludes
-bridges/tunnels, no longer follows catenaryAdd for streets (verified:
-street.zip has none), and re-resolves + revalidates every segment
-sequentially at build time, aborting safely on rejection.
+0.7 therefore validates in two engine-backed steps instead:
+  1. creation check: replaceSegment itself throws on invalid replacement
+     (proposals are inert until sent, so creating them validates safely);
+  2. send result: makeWorldBuildProposalCmd callback per segment, with
+     actual cost accumulated from resultProposalData.costs.
+Pre-build cost is reported as "lo calcula el motor al construir".
 
-Also fixed: _metadata/modinfo.json used a wrong authors format (plain strings),
-which the game
-rejected every load (Failed to parse modinfo.json). It now uses the
-verified vanilla schema authors:[{name,role}].
+Previous fixes kept: TRAM/ELECTRIC_TRAM detection (not rail TRAM_TRACK),
+roadType STREET filter, car-access preservation, bridge/tunnel exclusion,
+no catenaryAdd for streets, sequential build with per-segment refresh.
 
-WHAT 0.6 DOES
+WHAT 0.7 DOES
 -------------
 Same staged scope as 0.5 (one radial control corridor) plus:
 
@@ -41,7 +45,7 @@ FULL TARGET — PRESERVED
 Topology Auto/Ring/Radial/Hybrid, stops, lines, vehicles, bus feeders,
 cargo/CITY SUPPLY, persistent manifest, KEEP/EXTEND/MOVE/ADD/RETIRE
 reconciliation, manual-change respect, Force rebuild, incremental
-recalculation. All reserved until the 0.6 physical conversion passes the
+recalculation. All reserved until the 0.7 physical conversion passes the
 in-game acceptance test (rails visible + vanilla tram pathing).
 
 INSTALL / UPDATE
@@ -53,7 +57,7 @@ Replace the existing urban_transport_planner folder. Do NOT merge.
 TEST PROCEDURE
 --------------
 1. Duplicate/manual save; same town as before if possible.
-2. Town panel -> Urban Tram Planner [ALPHA 0.6].
+2. Town panel -> Urban Tram Planner [ALPHA 0.7].
 3. Analyze; expect street tram candidates > 0, real source -> target
    mappings, lanes to add > 0, rejected = 0.
 4. If rejected > 0, DO NOT BUILD; send screenshot + filtered log.

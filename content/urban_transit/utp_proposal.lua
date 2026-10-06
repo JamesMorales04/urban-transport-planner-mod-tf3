@@ -3,18 +3,36 @@
 -- VERIFIED:
 --   api.engine.util.proposal.replaceSegment(entity, streetTemplate?)
 --     -> Proposal  (api/tealdef/api/engine/util.d.tl:987-991)
---   api.engine.util.proposal.makeProposalData(proposal, context?) -> ProposalData
---     (api/tealdef/api/engine/util.d.tl:925)
 --   api.cmd.makeWorldBuildProposalCmd(proposal, context, ignoreErrors,
 --     playerInitiated, doDust?)  (api/tealdef/api/cmd.d.tl:961-962)
 --   Vanilla GUI example (gui/construction/construction.tl:1301):
 --     api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, nil, false, true), cb)
+--   Context pattern (gui/entity_window/bridge_and_tunnel.tl, buy button):
+--     local context = api.type.Context.new()
+--     context.player = api.engine.util.getPlayer()
+--     ... makeWorldBuildProposalCmd(proposal, context, false, true)
+--   Vanilla pre-validation pattern (bridge_and_tunnel.tl:130): the engine
+--     computes ProposalData asynchronously inside builtin.ProposalViewer
+--     (onCreateProposalData -> proposalData.errorState.messages / .costs).
+--     There is NO shipped direct call of makeProposalData in GUI content.
 --
--- Design: analyze-time validation only enables Build. Build-time re-resolves
--- every entity (topology may have shifted after each sequential command),
--- re-validates, and aborts safely on the first rejection instead of leaving
--- a half-built corridor. No direct writes to BaseEdge/lane internals, no
--- Proposal field mutation.
+-- RUNTIME FINDING (v0.6 playtest, Alteren): calling
+--   api.engine.util.proposal.makeProposalData(replaceSegmentResult, context)
+-- directly throws:
+--   "bad argument #2 to '?' (SimpleProposal expected, got Proposal)"
+-- i.e. the binding only accepts SimpleProposal there, while replaceSegment
+-- yields a full Proposal. The tealdef signature (proposal: Proposal) does not
+-- match runtime behaviour, and with zero shipped callers there is nothing to
+-- copy. Therefore v0.7 does NOT call makeProposalData on replaceSegment
+-- output. Validation rests on two engine-backed pillars instead:
+--   1. creation check: replaceSegment itself throws on invalid replacement
+--      (proposals are inert until sent, so creating them validates safely);
+--   2. send result: makeWorldBuildProposalCmd callback reports success plus
+--      resultProposalData (costs/errorState), per segment, sequentially.
+-- Design: analyze-time creation check only enables Build. Build-time
+-- re-creates every proposal (world revision may have shifted after each
+-- sequential command) and aborts safely on the first rejection. No direct
+-- writes to BaseEdge/lane internals, no Proposal field mutation.
 
 local executor = {}
 
@@ -86,9 +104,11 @@ function executor.makeTramProposal(edgeRec, preferElectric)
     return native, nil, changed, false
 end
 
-function executor.proposalDataFor(edgeRec, context, preferElectric)
+-- Analyze-time validation: creating the proposal IS the engine check.
+-- Never calls makeProposalData (runtime rejects Proposal there; see header).
+function executor.validateForBuild(edgeRec, preferElectric)
     if edgeRec.satisfies then
-        return { ok = true, cost = 0, critical = false, already = true, changedLanes = 0 }
+        return { ok = true, critical = false, already = true, changedLanes = 0 }
     end
     local okMake, proposal, proposalError, changedLanes =
         pcall(executor.makeTramProposal, edgeRec, preferElectric)
@@ -98,28 +118,9 @@ function executor.proposalDataFor(edgeRec, context, preferElectric)
     end
     if not proposal then
         return { ok = false, critical = true,
-            error = proposalError or "No proposal returned.", changedLanes = changedLanes or 0 }
+            error = proposalError or "Engine refused the replacement.", changedLanes = changedLanes or 0 }
     end
-    local okData, data = pcall(api.engine.util.proposal.makeProposalData, proposal, context)
-    if not okData or not data then
-        return { ok = false, critical = true,
-            error = "proposal validation failed: " .. errorText(data), changedLanes = changedLanes or 0 }
-    end
-    local critical = false
-    local messages = {}
-    pcall(function()
-        critical = data.errorState.critical == true
-        for _, m in ipairs(data.errorState.messages or {}) do messages[#messages + 1] = tostring(m) end
-    end)
-    return {
-        ok = true,
-        proposal = proposal,
-        data = data,
-        cost = tonumber(data.costs) or 0,
-        critical = critical,
-        changedLanes = changedLanes or 0,
-        error = #messages > 0 and table.concat(messages, " ") or nil,
-    }
+    return { ok = true, critical = false, changedLanes = changedLanes or 0 }
 end
 
 -- Re-resolve a planned edge against the live world right before building it.
@@ -138,7 +139,6 @@ function executor.refreshEdge(planRec)
     if liveTemplate ~= planRec.currentTemplate then
         -- Another build (or the player) already changed it: re-check tram state.
         local hasTram, hasElectric = catalog.edgeStreetTramKinds(edge)
-        -- satisfiedNow is computed by the caller via preferElectric; keep raw.
         fresh.liveHasTram = hasTram
         fresh.liveHasElectric = hasElectric
         return fresh, "changed"
@@ -146,17 +146,26 @@ function executor.refreshEdge(planRec)
     return fresh, nil
 end
 
+local function callbackCost(res)
+    local cost = 0
+    pcall(function()
+        local pd = res and res.resultProposalData
+        if pd and tonumber(pd.costs) then cost = tonumber(pd.costs) end
+    end)
+    return cost
+end
+
 function executor.buildPath(path, preferElectric, report)
     report = report or function() end
     local player = api.engine.util.getPlayer()
     local context = executor.newContext(player)
-    local changed, skipped = 0, 0
+    local changed, skipped, actualCost = 0, 0, 0
 
     local function step(i)
         if i > #path then
             return report(string.format(
-                "Done: corredor radial de prueba construido. %d segmentos cambiados, %d ya cumplian.",
-                changed, skipped), false)
+                "Done: corredor radial de prueba construido. %d segmentos cambiados, %d ya cumplian, coste motor $%d.",
+                changed, skipped, actualCost), false)
         end
         local e = path[i]
 
@@ -186,22 +195,23 @@ function executor.buildPath(path, preferElectric, report)
             return step(i + 1)
         end
 
-        -- Re-validate immediately before sending (world revision may differ).
-        local pd = executor.proposalDataFor(e, context, preferElectric)
-        if not pd.ok or pd.critical then
-            return report("El segmento " .. i .. " ya no valida: " .. tostring(pd.error or "?")
+        -- Fresh creation check immediately before sending (world may differ).
+        local proposal, proposalError, changedLanes =
+            executor.makeTramProposal(e, preferElectric)
+        if not proposal then
+            return report("El segmento " .. i .. " ya no valida: " .. tostring(proposalError or "?")
                 .. ". Plan detenido sin mas cambios.", true)
         end
 
         report(string.format(
             "Convirtiendo segmento %d/%d: %s -> %s (%d carril(es) de via nuevos)...",
-            i, #path, tostring(e.currentTemplate), tostring(e.targetTemplate), pd.changedLanes or 0), false)
+            i, #path, tostring(e.currentTemplate), tostring(e.targetTemplate), changedLanes or 0), false)
 
         local okSend, err = pcall(function()
             -- Verified signature: (proposal, context, ignoreErrors,
             -- playerInitiated, doDust?). Vanilla uses (proposal, nil, false, true).
             api.cmd.sendCommand(
-                api.cmd.makeWorldBuildProposalCmd(pd.proposal, context, false, true, true),
+                api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true),
                 function(res, success)
                     if not success then
                         local msg = ""
@@ -217,6 +227,7 @@ function executor.buildPath(path, preferElectric, report)
                             true)
                     end
                     changed = changed + 1
+                    actualCost = actualCost + callbackCost(res)
                     step(i + 1)
                 end)
         end)

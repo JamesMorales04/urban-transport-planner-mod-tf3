@@ -1,6 +1,25 @@
 # CHANGELOG
 
-## 0.6.0 — tram-detection fix + hardening
+## 0.7.0 — creation-check validation (playtest fix)
+
+v0.6 analysis worked in game (Alteren: 15 street tram templates, correct
+`town_new_small -> town_new_small_tram_electrified x3` mapping), but every
+segment was refused:
+`proposal validation failed: bad argument #2 to '?' (SimpleProposal
+expected, got Proposal)`.
+`makeProposalData` rejects `replaceSegment` output at runtime despite the
+tealdef signature, and no shipped content calls it (verified by exhaustive
+grep). Vanilla pre-validates inside `builtin.ProposalViewer`
+(`bridge_and_tunnel.tl`), with no safe equivalent for a town-window card.
+
+- Removed the direct `makeProposalData` call. Validation is now:
+  creation check (`replaceSegment` throws on invalid replacement; proposals
+  are inert until sent) at analyze time, plus per-segment send results at
+  build time.
+- Actual cost accumulates from `resultProposalData.costs` in send callbacks;
+  pre-build cost displays as engine-pending.
+- Fixed missed `[ALPHA 0.5]` card title (-> 0.7).
+- `mod.json` revision 7 / `modVersion` 0.7.0.
 
 Root cause (v0.5): street tram detection checked rail modes
 `TRAM_TRACK` / `ELECTRIC_TRAM_TRACK`. Street templates use

@@ -1,4 +1,4 @@
--- Town-window UI for Urban Tram Planner Alpha v0.6.
+-- Town-window UI for Urban Tram Planner Alpha v0.7.
 
 local module = nil
 
@@ -35,7 +35,7 @@ local function build()
         return table.concat(out, " | ")
     end
 
-    local Content = react.RegisterRecipe("urban_transit_alpha_Content_v06", function(params)
+    local Content = react.RegisterRecipe("urban_transit_alpha_Content_v07", function(params)
         local town = params.entityId
         local previewState = react.useState(nil)
         local busyState = react.useState(false)
@@ -43,8 +43,8 @@ local function build()
         local electricState = react.useState(true)
 
         local children = {
-            text("ALPHA 0.6 - Ruta documentada Proposal/StreetTemplate para via tranviaria."),
-            text("Correccion principal v0.6: las calles con tranvia usan TRAM/ELECTRIC_TRAM (no TRAM_TRACK de via ferrea). El inventario solo acepta plantillas STREET, conserva acceso de coches y excluye puentes/tuneles. La construccion revalida cada segmento."),
+            text("ALPHA 0.7 - Ruta documentada Proposal/StreetTemplate para via tranviaria."),
+            text("Correccion v0.7: el motor rechaza makeProposalData sobre replaceSegment (SimpleProposal expected, got Proposal), asi que la validacion es por creacion de propuesta + resultado de cada envio. El coste real lo da el motor al construir."),
             text("Seguimos con UN corredor radial de control. Ring/Hybrid, paradas, lineas, vehiculos, feeders, carga y recálculo persistente siguen reservados hasta confirmar que esta conversion fisica funciona en partida."),
             builtin.CheckBox{
                 value = electricState:old() and 1 or 0,
@@ -57,7 +57,7 @@ local function build()
             },
             builtin.Button{
                 meta = { class = "primary", enabled = not busyState:old() },
-                content = text("Analizar corredor radial v0.6"),
+                content = text("Analizar corredor radial v0.7"),
                 onClick = function()
                     statusState:set("Analizando StreetTemplates reales y validando propuestas...")
                     local r = core.analyzeSafe(town, electricState:old())
@@ -105,8 +105,9 @@ local function build()
                 ))
                 children[#children + 1] = text("Source -> target: " .. compactSummary(pv.sourceTargetCounts, 4))
                 children[#children + 1] = text(string.format(
-                    "Validacion: %d segmento(s) rechazados | coste estimado: %s",
-                    pv.refused or 0, money(pv.cost or 0)
+                    "Validacion (creacion): %d segmento(s) rechazados | coste: %s",
+                    pv.refused or 0,
+                    pv.costKnown and money(pv.cost or 0) or "lo calcula el motor al construir"
                 ))
                 if pv.target then
                     children[#children + 1] = text(string.format(
@@ -120,7 +121,7 @@ local function build()
                     children[#children + 1] = text("Todos los segmentos pasaron la validacion. Haz una copia/manual save antes de la prueba fisica.")
                     children[#children + 1] = builtin.Button{
                         meta = { class = "primary", enabled = not busyState:old() },
-                        content = text("CONSTRUIR CORREDOR DE PRUEBA v0.6"),
+                        content = text("CONSTRUIR CORREDOR DE PRUEBA v0.7"),
                         onClick = function()
                             busyState:set(true)
                             statusState:set("Iniciando construccion...")
@@ -152,11 +153,11 @@ local function build()
         return not (params.state and params.state.isMapEditor)
     end
 
-    m.Plugin = react.RegisterPluginRecipe(town_eow.TownEowExtensionPoint, "urban_transit_alpha_Plugin_v06", function(params)
+    m.Plugin = react.RegisterPluginRecipe(town_eow.TownEowExtensionPoint, "urban_transit_alpha_Plugin_v07", function(params)
         local ok, result = pcall(function()
             return builtin.BoxLayout{
                 child = content_card.ContentCard{
-                    title = "Urban Tram Planner [ALPHA 0.5]",
+                    title = "Urban Tram Planner [ALPHA 0.7]",
                     initialCalloutTextPermanent = "",
                     recipeAndParamPermanent = content_card.makeRecipeAndParam(Content, { entityId = params.entityId }),
                     gameCtx = params.gameCtx,

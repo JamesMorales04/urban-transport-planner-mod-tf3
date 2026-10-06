@@ -1,4 +1,4 @@
--- Urban Tram Planner Alpha - Transport Fever 3 - v0.6
+-- Urban Tram Planner Alpha - Transport Fever 3 - v0.7
 --
 -- Facade kept for backward compatibility: the town-window plugin requires
 -- this file as `core` (analyzeSafe/build/log/errorText/townShape).
@@ -17,6 +17,12 @@
 --   convertible. v0.6 detects TRAM/ELECTRIC_TRAM, filters roadType STREET,
 --   preserves car access, excludes bridges/tunnels, and re-resolves entities
 --   sequentially at build time.
+--
+-- v0.7 validation fix (playtest evidence, Alteren): makeProposalData called
+--   on replaceSegment output throws at runtime (SimpleProposal expected, got
+--   Proposal) and has zero shipped callers, so it is no longer called.
+--   Validation = replaceSegment creation check (analyze) + sendCommand
+--   result per segment (build); actual cost accumulates from callbacks.
 --
 -- Deliberately still gated until this primitive passes an in-game test:
 -- stops, lines, vehicle purchase, ring/hybrid topology, bus feeders, cargo
@@ -139,9 +145,8 @@ function core.analyze(town, preferElectric)
     result.target = target
     result.segments = #path
     result._path = path
+    result.costKnown = false
 
-    local player = api.engine.util.getPlayer()
-    local context = executor.newContext(player)
     local firstError = nil
 
     for i, e in ipairs(path) do
@@ -162,13 +167,14 @@ function core.analyze(town, preferElectric)
             tostring(e.electricFallback), tonumber(e.templateScore) or -1
         ))
 
-        local pd = executor.proposalDataFor(e, context, wantElectric)
-        if not pd.ok or pd.critical then
+        -- Creation check: replaceSegment itself is the engine validator.
+        -- makeProposalData is NOT called (runtime rejects Proposal there).
+        local v = executor.validateForBuild(e, wantElectric)
+        if not v.ok or v.critical then
             result.refused = result.refused + 1
-            firstError = firstError or pd.error or "El juego rechazo una propuesta de segmento."
+            firstError = firstError or v.error or "El juego rechazo una propuesta de segmento."
         else
-            result.cost = result.cost + (pd.cost or 0)
-            result.tramLanesToAdd = result.tramLanesToAdd + (pd.changedLanes or 0)
+            result.tramLanesToAdd = result.tramLanesToAdd + (v.changedLanes or 0)
         end
     end
 

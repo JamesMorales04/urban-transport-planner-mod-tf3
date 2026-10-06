@@ -4,7 +4,17 @@ Maintained per iteration. Sources of truth (in order): current code, real TF3
 logs, official/community TF3 modding docs, vanilla game scripts, then reasoned
 inference. No imagined APIs.
 
-## Implemented (v0.6, verified)
+## Implemented (v0.7, verified)
+
+- v0.7 validation redesign (playtest Alteren): `makeProposalData` called on
+  `replaceSegment` output throws at runtime
+  (`SimpleProposal expected, got Proposal`) and has zero shipped callers, so
+  it is NOT called. Validation = creation check at analyze time
+  (`replaceSegment` throws on invalid replacement; proposals inert until
+  sent) + per-segment `sendCommand` results at build time; actual cost
+  accumulates from `resultProposalData.costs`. Vanilla pre-validates inside
+  `builtin.ProposalViewer` (`bridge_and_tunnel.tl:130`), no safe equivalent
+  for a town-window card.
 
 - Street tram detection with the CORRECT modes: `TRAM` / `ELECTRIC_TRAM` on
   lane `transportModes` (map form `{Mode: boolean}`, value must be `true`;
@@ -44,8 +54,9 @@ inference. No imagined APIs.
 
 ## Partially implemented
 
-- Corridor conversion end-to-end: code path complete and validated statically,
-  awaiting the in-game acceptance test (rails visible + vanilla tram paths it).
+- Corridor conversion end-to-end: v0.6 analysis proven in game (Alteren:
+  15 street tram templates, correct small->electrified x3 mapping,
+  3-segment corridor); v0.7 validation path awaits retest.
 - Electric preference with non-electric fallback flag (`electricFallbacks`).
 
 ## Pending (in dependency order)
@@ -67,8 +78,9 @@ inference. No imagined APIs.
 - `replaceSegment` on streets is documented ("Use with caution") but has ZERO
   shipped vanilla callers; behavior on bridges/tunnels/one-ways/modded streets
   is unproven → excluded or validated per segment, never assumed.
-- `makeProposalData` from GUI thread has no vanilla caller to copy; wrapped in
-  `pcall`, failures block Build instead of crashing.
+- `makeProposalData` is NOT called on `replaceSegment` output (runtime
+  rejects it; tealdef disagrees; zero shipped callers). Cost is therefore
+  engine-reported at build time, not pre-estimated.
 - Modded streets: mapping degrades to incompatible → excluded with counts;
   no destructive fallback.
 - Sequential builds can shift later entity IDs → mitigated by `refreshEdge`
@@ -77,6 +89,9 @@ inference. No imagined APIs.
 
 ## API uncertainties (encapsulated, marked)
 
+- `makeProposalData` on `replaceSegment` output: RUNTIME-REJECTED
+  (`SimpleProposal expected, got Proposal`; tealdef claims otherwise; zero
+  shipped callers). Not called since v0.7.
 - Exact `ResName` string form expected by `replaceSegment` for street
   templates (`::/infrastructure/street/...street_template` assumed from
   `street_constructions` tables; no shipped caller).
@@ -108,8 +123,8 @@ inference. No imagined APIs.
 
 ## Next priorities
 
-1. Playtest v0.6 on a save copy (same town as v0.4/0.5 if possible); collect
-   panel screenshot + `grep -F "[Urban Tram Planner Alpha]" stdout.txt`.
+1. Retest v0.7 on a save copy (Alteren if available): Analyze should show
+   `rejected = 0` + `lanes to add > 0`; then Build, verify rails/catenary,
+   vanilla stops + manual tram line pathing.
 2. If green: stop planner + manual-line pathing check.
-3. If red: classify via new diagnostics (street vs rail counts, mappings,
-   first validation error) — never guess.
+3. If red: classify via creation error / send-callback messages — never guess.

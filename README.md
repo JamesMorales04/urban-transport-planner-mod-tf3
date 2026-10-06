@@ -36,14 +36,15 @@ Copy/replace the folder into the TF3 `staging_area` (never merge old files):
 
 Then enable the mod and test on a COPY of the save.
 
-## Test procedure (v0.6)
+## Test procedure (v0.7)
 
 1. Duplicate/manual save. Preferably open the same town as previous tests.
-2. Town panel → Urban Tram Planner [ALPHA 0.6].
+2. Town panel → Urban Tram Planner [ALPHA 0.7].
 3. Leave electric preference enabled; press Analyze.
 4. Expect: street tram candidates > 0 (not rail tracks), real
    `source -> target` mappings, `lanes to add > 0` on fresh roads,
-   `rejected = 0` to enable Build.
+   `rejected = 0` to enable Build. Pre-build cost shows as pending; the
+   real cost is reported by the engine after each segment builds.
 5. If rejected > 0: DO NOT BUILD; send panel screenshot + filtered log.
 6. If rejected = 0: save again, press Build, verify rails/catenary, then
    place vanilla tram stops + a manual tram line over the corridor. The
@@ -64,5 +65,5 @@ luac -p content/urban_transit/*.lua
 
 ## Versioning
 
-`mod.json` `revision` is the loader's version (currently 6);
-`modVersion` mirrors the alpha (`0.6.0`). See `CHANGELOG.md`.
+`mod.json` `revision` is the loader's version (currently 7);
+`modVersion` mirrors the alpha (`0.7.0`). See `CHANGELOG.md`.
